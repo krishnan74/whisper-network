@@ -27,106 +27,142 @@ This is impossible with a centralized broker. It is an emergent property of P2P 
 └─────────────────────────────────────────────┘
 ```
 
-**Failure detection**: peer silent for >6s → SUSPECTED. 2 independent reports → CONFIRMED DEAD → expired leases reclaimed.
+**Failure detection:** peer silent for >10s → SUSPECTED. 2 independent gossip reports → CONFIRMED DEAD → expired leases reclaimed by survivors.
 
-**Lease mechanism**: 60s leases, renewed every 30s. If a node dies, its lease expires and any survivor claims the task within one scan cycle (5s).
+**Lease mechanism:** 30s leases, renewed every 15s. If a node dies, renewal stops; lease expires; any survivor claims the task on its next 5s scan cycle.
+
+**Any node handles any shard.** Each node loads all 6 document shards so surviving nodes can pick up work from dead ones.
 
 ---
 
-## Quick Start (Docker Compose)
+## Requirements
 
-### 1. Build
+- Python 3.11+ with `requests`, `rich`, and `redis` (see install step below)
+- AXL binary at `axl/node` (pre-built from `../axl/` — see below)
+- `openssl` (for key generation)
 
-The AXL binary must be built first and placed at `axl/node`:
+---
+
+## Demo: Local (No Docker)
+
+This is the verified path. All 6 AXL + whisper nodes run on one machine.
+
+### 1. Ensure the AXL binary is present
 
 ```bash
-cd ../axl
-make build
-cp node ../whisper-network/axl/node
-cd ../whisper-network
+ls axl/node   # should exist — was built from ../axl/
 ```
 
-### 2. Run all 6 nodes
-
+If missing:
 ```bash
-docker compose up --build
+cd ../axl && make build && cp node ../whisper-network/axl/node && cd ../whisper-network
 ```
 
-Node debug APIs are available at `localhost:8888` through `localhost:8893`.
-
-### 3. Open the dashboard (separate terminal)
+### 2. Install Python dependencies
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-python -m demo.dashboard
 ```
 
-### 4. Submit a query
-
-```bash
-python -m demo.submit_task "neural network" --api http://localhost:8888
-python -m demo.submit_task "gossip"
-python -m demo.submit_task "attention"
-```
-
-### 5. Kill 3 nodes mid-execution (the money shot)
-
-```bash
-docker compose kill node-4 node-5 node-6
-```
-
-Watch the dashboard: nodes go SUSPECTED → DEAD → surviving nodes reclaim tasks → all 6 tasks complete.
-
----
-
-## Running Without Docker (local dev)
-
-You need 6 AXL instances with different ports. A convenience script:
+### 3. Start all 6 nodes
 
 ```bash
 ./run_local.sh
 ```
 
-Or manually:
+This generates 6 ed25519 keys (once), writes per-node AXL configs into `axl-local/`, then starts 6 AXL processes and 6 whisper nodes. Logs go to `logs/`. Leave this running in one terminal.
 
-```bash
-# Terminal per node (open 6):
-./axl/node -config axl/node-config-1.json &
-python -m whisper.node --shard-id 1 --shard-file demo/shards/shard-1.txt \
-    --api-base http://127.0.0.1:9002 --debug-port 8888
-
-./axl/node -config axl/node-config-2.json &   # needs unique tcp_port + api_port
-python -m whisper.node --shard-id 2 --shard-file demo/shards/shard-2.txt \
-    --api-base http://127.0.0.1:9012 --debug-port 8889
-# ... etc.
+After ~15 seconds you should see output like:
+```
+  node-1: shard=1 peers=5 alive=5
+  node-2: shard=2 peers=5 alive=5
+  ...
 ```
 
-Local node-config files for running multiple nodes on one machine:
-- Each needs a unique `api_port` and `tcp_port`
-- Nodes 2-6 peer to node-1 via `tls://127.0.0.1:9001`
+### 4. Open the live dashboard (separate terminal)
+
+```bash
+cd /home/krish74/whisper-network
+.venv/bin/python -m demo.dashboard
+```
+
+The dashboard polls all 6 nodes every second and shows node status, task ledger, and event log.
+
+### 5. Submit a query
+
+```bash
+cd /home/krish74/whisper-network
+.venv/bin/python -m demo.submit_task "attention" --api http://localhost:8888
+```
+
+Other good queries: `"gossip"`, `"neural network"`, `"alignment"`, `"transformer"`, `"consensus"`.
+
+You will see all 6 tasks distributed and completed within ~10 seconds.
+
+---
+
+## The Money Shot: Kill 3 Nodes Mid-Execution
+
+This is the core demo. Run it after the network is up and healthy.
+
+### Option A — Kill before submitting (cleanest for judges)
+
+```bash
+# Kill nodes 4, 5, 6 with SIGKILL (no graceful shutdown)
+kill -9 $(pgrep -f "shard-id 4") $(pgrep -f "shard-id 5") $(pgrep -f "shard-id 6")
+
+# Now submit — the 3 surviving nodes must handle all 6 shards
+.venv/bin/python -m demo.submit_task "gossip" --api http://localhost:8888 --timeout 120
+```
+
+### Option B — Kill mid-flight (more dramatic)
+
+```bash
+# Submit in the background
+.venv/bin/python -m demo.submit_task "gossip" --api http://localhost:8888 --timeout 120 &
+
+# Immediately kill 3 nodes
+kill -9 $(pgrep -f "shard-id 4") $(pgrep -f "shard-id 5") $(pgrep -f "shard-id 6")
+
+# Watch the progress bar stall, then recover
+```
+
+### What you will observe
+
+| Time | Event |
+|------|-------|
+| t+0s  | Nodes 4, 5, 6 killed |
+| t+10s | Surviving nodes mark them SUSPECTED (silent >10s) |
+| t+11s | 2 independent suspicion reports → CONFIRMED DEAD |
+| t+30s | Dead nodes' leases expire |
+| t+35s | Surviving nodes claim and execute the 3 orphaned tasks |
+| t+40s | All 6/6 tasks COMPLETED |
+
+The dashboard's event log shows the exact SUSPECTED → CONFIRMED DEAD → claimed sequence in real time.
 
 ---
 
 ## Centralized Comparison (Redis)
 
-Run alongside Whisper to show the contrast:
+Run this side-by-side to show what a centralized broker does when its coordinator dies.
 
 ```bash
-# Start Redis
-docker compose --profile comparison up redis
+# Start Redis (requires Docker or a local redis-server)
+docker run --rm -d --name redis -p 6379:6379 redis:7
 
-# Run the broker demo
-python -m comparison.redis_broker --query "neural network"
+# Run the broker demo — same task, same shards
+.venv/bin/python -m comparison.redis_broker --query "gossip"
 
 # Kill Redis mid-execution (from another terminal):
-docker compose kill redis
-# The broker freezes. No recovery. Contrast with Whisper Network.
+docker kill redis
+# The broker freezes instantly. No recovery. No reassignment.
 ```
 
-Or inject a timed kill:
-
+Inject a timed kill for a scripted side-by-side:
 ```bash
-python -m comparison.redis_broker --query "neural network" --kill-at 3
+.venv/bin/python -m comparison.redis_broker --query "gossip" --kill-at 3
 ```
 
 ---
@@ -134,34 +170,55 @@ python -m comparison.redis_broker --query "neural network" --kill-at 3
 ## Project Layout
 
 ```
+axl/
+  node                  pre-built AXL binary
+  node-config-*.json    AXL configs for Docker Compose
+axl-local/              AXL configs generated by run_local.sh (gitignored)
+keys/                   ed25519 keys generated by run_local.sh (gitignored)
+logs/                   per-node logs written by run_local.sh
+
 whisper/
-  transport.py   — thin wrapper around AXL /send /recv /topology
-  membership.py  — Layer 1: SWIM-lite gossip membership + failure detection
-  ledger.py      — Layer 2: distributed task ledger with lease management
-  runtime.py     — Layer 3: per-node task execution loop
-  node.py        — main entry point; wires layers together + debug HTTP server
+  transport.py          thin wrapper: AXL /send, /recv, /topology
+  membership.py         Layer 1: heartbeat + SWIM-lite failure detection
+  ledger.py             Layer 2: lease-based task ledger + gossip replication
+  runtime.py            Layer 3: agent execution loop (handles all shards)
+  node.py               entry point: wires layers + debug HTTP server (:8888+n)
 
 demo/
-  submit_task.py — CLI to submit a query and wait for results
-  dashboard.py   — rich live terminal UI
-  shards/        — 6 document corpus text files (AI/ML research notes)
+  submit_task.py        CLI: submit a query and wait for results
+  dashboard.py          rich live terminal UI
+  shards/shard-*.txt    6 AI/ML research document corpus files
 
 comparison/
-  redis_broker.py — identical system using Redis; freezes when Redis dies
+  redis_broker.py       centralized equivalent — freezes when Redis dies
 
-axl/
-  node-config-*.json — AXL configs for 6 nodes
+docker-compose.yml      6-node Compose setup (requires `docker compose` plugin)
+run_local.sh            6-node local setup (no Docker, verified working)
 ```
+
+---
 
 ## Tuning Constants
 
-| Parameter | Default | File |
-|-----------|---------|------|
+| Parameter | Value | File |
+|-----------|-------|------|
 | Heartbeat interval | 2s | `membership.py` |
-| Suspect threshold | 6s | `membership.py` |
+| Suspect threshold | 10s | `membership.py` |
 | Dead reports needed | 2 | `membership.py` |
-| Gossip fanout | 3 | both |
+| Gossip fanout | 3 peers | both |
 | Gossip hops | 8 | both |
-| Lease duration | 60s | `ledger.py` |
-| Lease renew threshold | 30s | `ledger.py` |
+| Lease duration | 30s | `ledger.py` |
+| Lease renew threshold | 15s | `ledger.py` |
 | Agent scan interval | 5s | `runtime.py` |
+
+---
+
+## AXL Gotchas
+
+These were discovered during implementation and are not documented in AXL itself:
+
+1. **`X-From-Peer-Id` is not the full public key.** It is a partial identifier derived from the Yggdrasil IPv6 address via `address.GetKey()`. Never use it to route AXL messages. Always read the sender key from the JSON message body (`msg["from"]`).
+
+2. **All nodes on the same machine must share the same `tcp_port` (default 7000).** This port is used as both the local gVisor listener port AND the destination port when dialing remote peers. Only `api_port` needs to be unique per node. Using unique `tcp_port` values causes all cross-node sends to fail with "connection refused".
+
+3. **Heartbeats loop back via gossip relay.** When a node forwards a heartbeat to its peers, those peers may forward it back. The dedup cache (`seen_ids`) handles most cases, but `_on_heartbeat` must explicitly check `if msg["from"] == our_key: return` to avoid a node adding itself to its own peer list.

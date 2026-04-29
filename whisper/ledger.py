@@ -24,8 +24,8 @@ from typing import Callable, Optional
 logger = logging.getLogger(__name__)
 
 # ── Tuning ────────────────────────────────────────────────────────────────────
-LEASE_DURATION  = 60.0   # seconds a claimed lease is valid
-RENEW_THRESHOLD = 30.0   # renew when less than this many seconds remain
+LEASE_DURATION  = 30.0   # seconds a claimed lease is valid (short for demo: fast recovery)
+RENEW_THRESHOLD = 15.0   # renew when less than this many seconds remain
 GOSSIP_FANOUT   = 3
 GOSSIP_HOPS     = 8
 SEEN_CACHE_SIZE = 1000

@@ -26,29 +26,33 @@ class AgentRuntime:
         ledger,
         our_key: str,
         shard_id: int,
-        shard_file: str,
+        shard_dir: str,
+        num_shards: int = 6,
     ):
         self.ledger    = ledger
         self.our_key   = our_key
-        self.shard_id  = shard_id
-        self.shard_file = shard_file
+        self.shard_id  = shard_id   # this node's "home" shard (informational only)
+        self.shard_dir = shard_dir
+        self.num_shards = num_shards
 
-        self._shard_lines: list[str] = []
-        self._load_shard()
+        # Load ALL shards — any surviving node can execute any task
+        self._shards: dict[int, list[str]] = {}
+        self._load_all_shards()
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
 
-    def _load_shard(self):
-        if os.path.exists(self.shard_file):
-            with open(self.shard_file) as f:
-                self._shard_lines = [l.rstrip() for l in f if l.strip()]
-            logger.info(
-                "loaded shard-%d: %d lines from %s",
-                self.shard_id, len(self._shard_lines), self.shard_file,
-            )
-        else:
-            logger.warning("shard file not found: %s", self.shard_file)
+    def _load_all_shards(self):
+        for i in range(1, self.num_shards + 1):
+            path = os.path.join(self.shard_dir, f"shard-{i}.txt")
+            if os.path.exists(path):
+                with open(path) as f:
+                    lines = [l.rstrip() for l in f if l.strip()]
+                self._shards[i] = lines
+                logger.info("loaded shard-%d: %d lines", i, len(lines))
+            else:
+                self._shards[i] = []
+                logger.warning("shard-%d not found at %s", i, path)
 
     def start(self):
         self._running = True
@@ -73,11 +77,8 @@ class AgentRuntime:
         for task in self.ledger.get_tasks_needing_renewal():
             self.ledger.renew_lease(task.task_id)
 
-        # 2. Find tasks for our shard that need claiming
-        claimable = [
-            t for t in self.ledger.get_claimable_tasks()
-            if t.shard_id == self.shard_id
-        ]
+        # 2. Find any claimable tasks (any shard — survivors pick up dead nodes' work)
+        claimable = self.ledger.get_claimable_tasks()
 
         for task in claimable:
             if not self.ledger.claim_task(task.task_id):
@@ -94,26 +95,27 @@ class AgentRuntime:
                 logger.info("lost lease race for %s, skipping", task.task_id[:12])
                 continue
 
-            logger.info("executing task %s (shard-%d)", task.task_id[:12], self.shard_id)
-            result = self.execute(task.payload)
+            logger.info("executing task %s (shard-%d)", task.task_id[:12], task.shard_id)
+            result = self.execute(task.payload, task.shard_id)
             self.ledger.complete_task(task.task_id, result)
             break  # process one task per scan cycle
 
-    def execute(self, payload: str) -> str:
+    def execute(self, payload: str, shard_id: int) -> str:
         """
-        Search the local document shard for lines matching the query.
-        Override this method to plug in any other task execution logic.
+        Search the specified document shard for lines matching the query.
+        Any node can execute tasks for any shard — survivors pick up dead nodes' work.
         """
         query = payload.strip()
         if query.lower().startswith("query:"):
             query = query[6:].strip()
         query_lower = query.lower()
 
-        matches = [line for line in self._shard_lines if query_lower in line.lower()]
+        lines   = self._shards.get(shard_id, [])
+        matches = [line for line in lines if query_lower in line.lower()]
 
         if matches:
             preview = " | ".join(matches[:3])
             if len(preview) > 120:
                 preview = preview[:117] + "..."
-            return f"shard-{self.shard_id}: {len(matches)} match(es): {preview}"
-        return f"shard-{self.shard_id}: no matches for '{query}'"
+            return f"shard-{shard_id}: {len(matches)} match(es): {preview}"
+        return f"shard-{shard_id}: no matches for '{query}'"

@@ -14,6 +14,7 @@ Also exposes a tiny debug HTTP server (default :8888) with:
 import argparse
 import json
 import logging
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -103,7 +104,7 @@ class WhisperNode:
             ledger    = self.ledger,
             our_key   = self.our_key,
             shard_id  = shard_id,
-            shard_file = shard_file,
+            shard_dir = os.path.dirname(os.path.abspath(shard_file)),
         )
 
         self.membership.set_tasks_held_fn(self.ledger.get_my_task_ids)

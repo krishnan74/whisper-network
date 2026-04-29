@@ -1,8 +1,0 @@
-{
-  "PrivateKeyPath": "keys/private-5.pem",
-  "Peers": ["tls://127.0.0.1:9011"],
-  "Listen": [],
-  "api_port": 9006,
-  "tcp_port": 7000,
-  "bridge_addr": "127.0.0.1"
-}

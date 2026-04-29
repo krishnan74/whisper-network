@@ -7,6 +7,7 @@
 # Ctrl-C to stop all nodes.
 set -euo pipefail
 
+PYTHON="${PYTHON:-$([ -f .venv/bin/python ] && echo .venv/bin/python || echo python3)}"
 AXL_BIN="${AXL_BIN:-./axl/node}"
 SHARDS_DIR="${SHARDS_DIR:-./demo/shards}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
@@ -76,7 +77,7 @@ for i in 1 2 3 4 5 6; do
 
     sleep 0.5  # stagger startup slightly
 
-    python -m whisper.node \
+    "${PYTHON}" -m whisper.node \
         --api-base    "http://127.0.0.1:${API_PORT}" \
         --shard-id    "${i}" \
         --shard-file  "${SHARDS_DIR}/shard-${i}.txt" \
@@ -89,8 +90,8 @@ done
 
 echo ""
 echo "All nodes started. Debug APIs on ports 8888-8893."
-echo "  Dashboard:  python -m demo.dashboard"
-echo "  Submit:     python -m demo.submit_task 'neural network'"
+echo "  Dashboard:  .venv/bin/python -m demo.dashboard"
+echo "  Submit:     .venv/bin/python -m demo.submit_task 'neural network'"
 echo "  Logs:       tail -f logs/whisper-1.log"
 echo ""
 echo "Press Ctrl-C to stop all nodes."

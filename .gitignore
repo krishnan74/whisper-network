@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Runtime generated
+keys/
+axl-local/
+data/
+logs/
+*.log
+
+# OS
+.DS_Store
