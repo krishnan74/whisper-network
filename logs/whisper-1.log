@@ -1,0 +1,10 @@
+2026-04-30 02:36:06,199 [MainThread] INFO __main__: our key: b3191fcf4b73ef87...
+2026-04-30 02:36:06,199 [MainThread] INFO whisper.runtime: loaded shard-1: 31 lines from demo/shards/shard-1.txt
+2026-04-30 02:36:06,204 [MainThread] INFO whisper.membership: discovered peer 06c1d329
+2026-04-30 02:36:06,204 [MainThread] INFO whisper.membership: discovered peer e4189dba
+2026-04-30 02:36:06,204 [MainThread] INFO whisper.membership: discovered peer 28f93333
+2026-04-30 02:36:06,204 [MainThread] INFO whisper.membership: discovered peer 87bcf160
+2026-04-30 02:36:06,204 [MainThread] INFO whisper.membership: discovered peer 406403f8
+2026-04-30 02:36:06,206 [MainThread] INFO __main__: seeded 5 peers from /topology
+2026-04-30 02:36:06,210 [MainThread] INFO __main__: debug API on :8888
+2026-04-30 02:36:06,214 [MainThread] INFO __main__: whisper node running (shard-1, debug :8888)

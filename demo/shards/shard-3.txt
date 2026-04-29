@@ -1,0 +1,31 @@
+Decentralized Computing and Blockchain for AI — research notes
+Federated learning trains models across distributed nodes without centralizing raw data.
+Differential privacy adds calibrated noise to gradients to protect individual training examples.
+Secure multi-party computation (SMPC) allows joint computation over private inputs.
+Homomorphic encryption enables computations on encrypted data without decryption.
+Proof-of-useful-work ties blockchain consensus to meaningful ML computation.
+Bittensor creates a decentralized network where validators score machine learning outputs.
+Render Network and Akash provide decentralized GPU compute marketplaces.
+Gensyn uses cryptographic verification to prove correct ML task execution on untrusted hardware.
+Zero-knowledge proofs can certify model inference results without revealing model weights.
+zkML (zero-knowledge machine learning) is an active research area in the 2024-2026 period.
+Decentralized autonomous organizations (DAOs) can govern AI research directions and funding.
+Token incentives align distributed node operators with network performance goals.
+Byzantine fault tolerance ensures a distributed system functions despite malicious or failed nodes.
+Yggdrasil is an experimental overlay network providing end-to-end encrypted IPv6 mesh routing.
+P2P gossip protocols propagate information across a network without a central coordinator.
+SWIM (Scalable Weakly-consistent Infection-style Membership) protocol detects failures via gossip.
+Vector clocks enable tracking causality in distributed systems without global time synchronization.
+Eventual consistency allows distributed replicas to converge over time without requiring coordination.
+CRDTs (Conflict-free Replicated Data Types) merge distributed state without conflicts.
+The CAP theorem states a distributed system cannot simultaneously guarantee consistency, availability, and partition tolerance.
+Raft consensus provides leader-based log replication for strongly consistent distributed systems.
+Paxos is the foundational consensus algorithm for distributed agreement in the presence of failures.
+Merkle trees enable efficient and tamper-proof verification of large data structures.
+Content-addressed storage (IPFS) stores data by cryptographic hash, enabling peer-to-peer retrieval.
+Distributed hash tables (DHTs) like Kademlia route queries across millions of nodes efficiently.
+Libp2p provides modular peer-to-peer networking primitives used by Ethereum and IPFS.
+The Ethereum Virtual Machine (EVM) executes smart contracts across thousands of validator nodes.
+Layer 2 rollups batch EVM transactions off-chain and post cryptographic proofs to Ethereum mainnet.
+Decentralized inference networks aim to serve large language models without central cloud providers.
+Verifiable computation allows a prover to convince a verifier a computation was done correctly.

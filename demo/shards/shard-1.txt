@@ -1,0 +1,31 @@
+Attention Is All You Need — Vaswani et al., 2017
+The transformer architecture eliminates recurrence and relies entirely on attention mechanisms.
+Self-attention allows modeling dependencies regardless of sequence distance.
+Multi-head attention projects queries, keys, and values h times with different learned projections.
+Positional encodings inject sequence order information into the token embeddings.
+The encoder stack consists of 6 identical layers with sublayers for attention and feed-forward networks.
+The decoder adds a third sublayer performing multi-head attention over the encoder output.
+Layer normalization is applied before each sublayer (pre-norm variant improves training stability).
+Residual connections around each sublayer help with gradient flow in deep networks.
+Training used the Adam optimizer with a custom learning rate warmup schedule.
+The original transformer achieved state-of-the-art BLEU scores on WMT 2014 English-to-German translation.
+Scaled dot-product attention computes softmax(QK^T / sqrt(d_k))V.
+The feed-forward sublayer applies two linear transformations with a ReLU activation in between.
+Dropout is applied to the output of each sublayer before adding the residual connection.
+Label smoothing during training improved BLEU score despite increasing perplexity.
+The model was parallelizable across the full sequence length, unlike RNNs.
+BERT later adapted the transformer encoder for bidirectional language modeling pretraining.
+GPT adapted the decoder for autoregressive language modeling.
+Vision Transformer (ViT) applied the architecture to image patches in 2020.
+Transformers now dominate NLP, vision, audio, and multimodal AI benchmarks.
+The key insight: attention over all positions is O(n^2) but enables richer representations.
+FlashAttention recomputes attention in tiles to reduce HBM memory bandwidth usage.
+Sparse attention patterns (Longformer, BigBird) extend transformers to longer sequences.
+Rotary positional embeddings (RoPE) encode relative positions via rotation matrices.
+ALiBi adds linear attention biases that allow length extrapolation at inference time.
+The transformer remains the foundation for GPT-4, Gemini, Claude, and LLaMA architectures.
+Mixture-of-experts transformer variants scale model capacity without proportional compute cost.
+Cross-attention in the decoder allows the model to focus on relevant encoder states.
+The softmax in attention creates a probability distribution over all positions in the sequence.
+Temperature scaling of attention logits controls the sharpness of the distribution.
+Key-value caching during autoregressive inference avoids redundant computation across tokens.

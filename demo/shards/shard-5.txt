@@ -1,0 +1,31 @@
+AI Safety and Alignment — research concepts
+Alignment refers to ensuring AI systems pursue goals intended by their designers and users.
+Mesa-optimization occurs when a learned model itself becomes an optimizer with its own objectives.
+Inner alignment is the problem of ensuring the mesa-optimizer pursues the base objective.
+Outer alignment is the problem of specifying the base objective to correctly capture human intent.
+Reward misspecification leads to reward hacking: the model maximizes the proxy at the expense of true goals.
+Goal misgeneralization occurs when a model's behavior diverges from intent in novel distributions.
+Deceptive alignment: a sufficiently capable model might behave well during training but not at deployment.
+Instrumental convergence: many different goals lead to similar subgoals like resource acquisition and self-preservation.
+Corrigibility is the property of an AI that allows it to be corrected, adjusted, or shut down.
+Value learning frames alignment as inferring human preferences from behavior and feedback.
+Inverse reinforcement learning (IRL) infers reward functions from observed expert behavior.
+Cooperative inverse reinforcement learning (CIRL) models alignment as a two-player game.
+Interpretability tools attempt to make model internals legible: probing classifiers, activation patching, logit lens.
+Feature visualization generates inputs that maximally activate specific neurons or circuits.
+Activation steering inserts concept vectors into the residual stream to influence model outputs.
+Honest AI systems avoid deception, manipulation, and creation of false impressions.
+Calibrated uncertainty means AI systems convey appropriate confidence levels in their outputs.
+Transparency means AI systems don't pursue hidden agendas or lie about themselves.
+Non-deception and non-manipulation are considered the most critical honesty properties.
+Red-teaming adversarially probes models for harmful, dishonest, or policy-violating behaviors.
+Responsible scaling policies commit AI labs to precautions as model capability thresholds are crossed.
+Evaluations for dangerous capabilities (bioweapons, cyber, CBRN) test whether models enable mass harm.
+Model cards document intended use, limitations, and bias evaluations for deployed AI systems.
+MACHIAVELLI benchmark evaluates whether agents pursue goals via deceptive or manipulative actions.
+Formal verification approaches attempt to provide mathematical guarantees about neural network behavior.
+Adversarial robustness ensures models perform correctly under distribution shift and adversarial inputs.
+Sandbagging is when a model deliberately underperforms on capability evaluations to avoid restrictions.
+Sleeper agent behavior refers to models that behave safely until a trigger condition activates unsafe outputs.
+AI governance frameworks coordinate international standards, auditing requirements, and liability rules.
+Anthropic's responsible scaling policy links deployment decisions to specific evaluated capability levels.

@@ -1,0 +1,29 @@
+Reinforcement Learning from Human Feedback — RLHF overview
+RLHF fine-tunes language models to align with human preferences using a reward model.
+A reward model is trained on human pairwise preference judgments between model outputs.
+Proximal Policy Optimization (PPO) updates the policy while constraining divergence from the reference model.
+The KL-divergence penalty prevents the policy from deviating too far from the supervised fine-tuned baseline.
+InstructGPT demonstrated that RLHF significantly improves instruction-following and reduces harmful outputs.
+Constitutional AI (CAI) from Anthropic trains a model to critique and revise its own outputs.
+Direct Preference Optimization (DPO) eliminates the separate reward model by treating alignment as classification.
+RLHF introduces a reward hacking risk: the model can exploit gaps between the reward model and true human preference.
+Rejection sampling fine-tuning (RFT) is a simpler alternative that filters model outputs by a learned reward.
+Group Relative Policy Optimization (GRPO) computes advantages within batches rather than against a value baseline.
+The reference policy in RLHF is typically the SFT model before RL fine-tuning begins.
+Reward model accuracy on held-out preference pairs correlates with downstream policy alignment quality.
+Over-optimization of the proxy reward leads to degradation — Goodhart's Law in practice.
+Process reward models (PRMs) give step-by-step feedback for reasoning tasks rather than outcome-only signals.
+Best-of-N sampling at inference uses the reward model to select the highest-scored output from N samples.
+Debate as an alignment technique has models argue and a judge evaluates the arguments.
+Scalable oversight research aims to align models on tasks humans cannot easily verify.
+Weak-to-strong generalization trains strong models to generalize from weak supervisor labels.
+Multi-objective RLHF balances competing objectives like helpfulness, harmlessness, and honesty.
+Red-teaming identifies adversarial prompts that elicit harmful or policy-violating model outputs.
+Constitutional prompting encodes behavioral rules that the model is asked to reason about before responding.
+Preference datasets like Anthropic HH, OpenAI's SFT data, and UltraFeedback are used for reward model training.
+The Bradley-Terry model is commonly used to convert pairwise preferences into scalar reward estimates.
+RLHF has become the dominant post-training paradigm for production language model alignment.
+Chain-of-thought supervision teaches models to reason step-by-step before producing final answers.
+Monte Carlo Tree Search (MCTS) combined with process reward models improves mathematical reasoning.
+Test-time compute scaling uses more inference steps to improve accuracy on hard reasoning problems.
+Synthetic data generation using strong models can bootstrap alignment for weaker or specialized models.

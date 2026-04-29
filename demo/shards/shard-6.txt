@@ -1,0 +1,31 @@
+Distributed Systems and Fault Tolerance — foundational concepts
+A distributed system is a collection of independent computers that appear to users as a single system.
+Fault tolerance is the ability of a system to continue operating correctly in the presence of failures.
+High availability systems use redundancy to minimize downtime and single points of failure.
+Replication maintains multiple copies of data across nodes to survive individual node failures.
+The two-generals problem shows that perfect consensus over an unreliable channel is impossible.
+FLP impossibility: no deterministic algorithm can solve consensus in an async system with one crash failure.
+Paxos achieves consensus in asynchronous networks by tolerating f failures with 2f+1 nodes.
+Raft simplifies Paxos with a leader election protocol and sequential log replication.
+Byzantine fault tolerance handles nodes that lie or behave arbitrarily, not just crash.
+PBFT (Practical Byzantine Fault Tolerance) requires 3f+1 nodes to tolerate f Byzantine failures.
+Gossip protocols propagate information epidemically: each node periodically contacts random peers.
+The SWIM membership protocol detects failures faster than heartbeat-to-coordinator schemes.
+Consistent hashing distributes keys evenly across nodes and minimizes reshuffling when nodes join/leave.
+Chord, Kademlia, and Pastry are distributed hash table protocols with O(log N) routing complexity.
+Vector clocks assign each event a logical timestamp per process, enabling causal ordering.
+Lamport timestamps provide a partial causal ordering of events across processes.
+Eventual consistency guarantees that all replicas converge to the same state if writes stop.
+Causal consistency ensures reads reflect all causally prior writes.
+Linearizability (strong consistency) ensures operations appear instantaneous and globally ordered.
+Read repair and anti-entropy gossip reconcile divergent replicas in eventually consistent systems.
+The hinted handoff technique temporarily stores writes for unavailable nodes and replays them on recovery.
+Lease-based coordination avoids split-brain by expiring ownership grants if a node stops renewing.
+Zookeeper and etcd provide strongly consistent coordination services for distributed clusters.
+Kafka uses a distributed commit log for high-throughput, durable, fault-tolerant event streaming.
+Spark and Flink provide fault-tolerant distributed data processing via checkpoint and replay.
+The actor model treats concurrent computation as message-passing between isolated actors.
+Erlang/OTP was designed for telecom fault tolerance: hot code reloading, supervised process trees.
+Chaos engineering intentionally injects failures (Netflix Chaos Monkey) to test system resilience.
+Idempotency ensures repeated execution of an operation has the same effect as executing it once.
+Exactly-once semantics require careful coordination across producers, brokers, and consumers.

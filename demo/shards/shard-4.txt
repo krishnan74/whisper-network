@@ -1,0 +1,31 @@
+Large Language Model Scaling and Architecture — research notes
+Scaling laws (Kaplan et al.) show loss improves predictably with model size, data, and compute.
+Chinchilla scaling laws (Hoffmann et al.) showed most models were under-trained relative to their size.
+Compute-optimal training pairs model parameters and training tokens in a fixed ratio (~20 tokens/param).
+LLaMA demonstrated that smaller models trained on more data match larger models trained on less.
+Mixture of Experts (MoE) activates a sparse subset of model parameters per token via a gating network.
+Mistral 7B used sliding window attention and grouped-query attention to improve inference efficiency.
+Grouped-query attention (GQA) shares key-value heads across multiple query heads, reducing KV cache size.
+Multi-query attention (MQA) uses a single key-value head shared across all query heads.
+Speculative decoding uses a small draft model to generate candidate tokens verified by the large model.
+Flash Attention 2 and 3 further optimize GPU memory access patterns for attention computation.
+LoRA fine-tunes models via low-rank decomposition of weight matrices, updating far fewer parameters.
+QLoRA quantizes the base model to 4-bit and fine-tunes with LoRA adapters on consumer GPUs.
+PEFT (Parameter-Efficient Fine-Tuning) methods include prefix tuning, prompt tuning, and adapters.
+Model quantization reduces weight precision (INT8, INT4, GPTQ, AWQ) with minimal quality loss.
+Pruning removes redundant weights or attention heads to reduce model size.
+Knowledge distillation trains smaller student models to mimic larger teacher model outputs.
+Retrieval-augmented generation (RAG) grounds language model outputs in retrieved documents.
+Long-context models (Gemini 1.5, Claude 3) extend context windows to millions of tokens.
+Chain-of-thought prompting elicits multi-step reasoning by asking models to show their work.
+Tree-of-thoughts and graph-of-thoughts extend CoT to branching search over reasoning paths.
+In-context learning emerges at scale: models learn new tasks from examples in the prompt.
+Emergent abilities appear discontinuously as models cross certain scale thresholds.
+Model merging combines multiple fine-tuned checkpoints via parameter-space averaging.
+TIES merging and DARE prune and elect parameters before merging to reduce interference.
+Representation engineering identifies and edits directions in activation space to control behavior.
+Mechanistic interpretability reverse-engineers circuits inside transformer models.
+Superposition theory suggests networks represent more features than dimensions via interference.
+Sparse autoencoders (SAEs) decompose residual stream activations into interpretable features.
+Neural scaling suggests that language modeling is a smooth lossy compression of the training corpus.
+The bitter lesson (Sutton): general methods that leverage computation always win in the long run.
