@@ -35,11 +35,13 @@ for i in 1 2 3 4 5 6; do
     fi
 done
 
-# Write per-node AXL configs with unique ports
+# Write per-node AXL configs with unique api_port but shared tcp_port.
+# AXL Gotcha: tcp_port must be identical across all nodes on the same machine —
+# it is the bridge destination port used when routing overlay messages. Unique
+# values cause /send to return 502 even though the Yggdrasil mesh connects fine.
 mkdir -p axl-local
 for i in 1 2 3 4 5 6; do
     API_PORT=$((9001 + i))
-    TCP_PORT=$((7000 + i))
     if [ "${i}" -eq 1 ]; then
         PEERS="[]"
         LISTEN='["tls://0.0.0.0:9001"]'
@@ -53,7 +55,7 @@ for i in 1 2 3 4 5 6; do
   "Peers": ${PEERS},
   "Listen": ${LISTEN},
   "api_port": ${API_PORT},
-  "tcp_port": ${TCP_PORT},
+  "tcp_port": 7000,
   "bridge_addr": "127.0.0.1"
 }
 EOF

@@ -150,17 +150,19 @@ Or use the terminal dashboard instead:
 
 ### 5. Submit a query
 
-**Option A — via whisper debug API (classic):**
+**Option A — via whisper debug API (recommended for demos):**
 ```bash
 .venv/bin/python -m demo.submit_task "attention" --api http://localhost:8888
 ```
 
-**Option B — via AXL P2P (full encrypted overlay, push notifications):**
+**Option B — via AXL P2P (shows AXL as application bus):**
 ```bash
 .venv/bin/python -m demo.submit_p2p "attention" --axl http://localhost:9002
 ```
 
-`submit_p2p` reads the AXL topology, picks a live peer, sends `task_submit` messages directly through the encrypted overlay (including `our_key` so nodes know where to send results back). Each node that completes a shard sends a `task_result` push notification back via AXL. `submit_p2p` polls AXL `/recv` for these notifications — no debug HTTP involved.
+`submit_p2p` reads the AXL topology, picks a live peer, and injects `task_submit` messages directly through the encrypted overlay. The `from` field carries the submitter's AXL key so executing nodes know where to push `task_result` notifications back. Results are collected by polling AXL `/recv`.
+
+> **Note:** Each whisper node shares its AXL `/recv` queue. If `submit_p2p` points at an AXL instance that also runs a whisper node (which is the case in the local 6-node setup), the whisper node's recv loop may consume some `task_result` messages before the script sees them. For a reliable end-to-end push demo, run a 7th standalone AXL instance and point `--axl` at it. For judging purposes, Option A is more reliable.
 
 Good queries: `"gossip"`, `"neural network"`, `"alignment"`, `"transformer"`, `"consensus"`.
 
@@ -329,12 +331,32 @@ All timing parameters are configurable via CLI flags. `run_local.sh` passes them
 
 ---
 
+## Troubleshooting
+
+**All nodes stuck in SUSPECTED / yellow in Web UI**
+
+The AXL overlay mesh connected but `/send` is returning 502. This means `tcp_port` values differ across nodes. Stop all nodes, delete `axl-local/`, and re-run `./run_local.sh` — it will regenerate configs with the correct shared `tcp_port: 7000`.
+
+**`submit_p2p` submits tasks but never shows results**
+
+The whisper node sharing the same AXL instance is consuming `task_result` messages off the `/recv` queue before `submit_p2p` polls for them. Use `submit_task` instead, or point `--axl` at a dedicated standalone AXL instance.
+
+**Node shows `no quorum` and won't claim orphaned tasks**
+
+The node can see fewer than half the cluster (`cluster_size / 2`). Either wait for peers to reconnect, or reduce `--cluster-size` to match the number of nodes actually running.
+
+**Tasks stall in `in_progress` after a node kill**
+
+The lease has not expired yet. With default settings wait 30s; with `FAST_MODE=1` wait 5s. Use `FAST_MODE=1 ./run_local.sh` for quicker recovery in demos.
+
+---
+
 ## AXL Gotchas
 
 These were discovered during implementation and are not documented in AXL itself:
 
 1. **`X-From-Peer-Id` is not the full public key.** It is a partial identifier derived from the Yggdrasil IPv6 address via `address.GetKey()`. Never use it to route AXL messages. Always read the sender key from the JSON message body (`msg["from"]`).
 
-2. **All nodes on the same machine must share the same `tcp_port` (default 7000).** This port is used as both the local gVisor listener port AND the destination port when dialing remote peers. Only `api_port` needs to be unique per node. Using unique `tcp_port` values causes all cross-node sends to fail with "connection refused".
+2. **All nodes on the same machine must share the same `tcp_port` (default 7000).** `tcp_port` is the bridge routing port — AXL uses it as the destination port when forwarding messages between overlay peers. Only `api_port` needs to be unique per node. Using a unique `tcp_port` per node causes `/send` to return **502** even though the Yggdrasil mesh shows all peers as `"up": true` — the overlay connects but message delivery silently fails. `run_local.sh` hard-codes `"tcp_port": 7000` for all nodes to avoid this.
 
 3. **Heartbeats loop back via gossip relay.** When a node forwards a heartbeat to its peers, those peers may forward it back. The dedup cache (`seen_ids`) handles most cases, but `_on_heartbeat` must explicitly check `if msg["from"] == our_key: return` to avoid a node adding itself to its own peer list.
