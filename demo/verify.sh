@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Verify the full Whisper Network demo end-to-end.
 # Run after ./run_local.sh (or FAST_MODE=1 ./run_local.sh) is already up.
+# Can be invoked from any directory: ./demo/verify.sh or cd demo && ./verify.sh
 set -euo pipefail
+
+# Always run from the project root so Python module paths resolve correctly
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}/.."
 
 PYTHON="${PYTHON:-$([ -f .venv/bin/python ] && echo .venv/bin/python || echo python3)}"
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
