@@ -104,8 +104,10 @@ done
 
 echo ""
 echo "All nodes started. Debug APIs on ports 8888-8893."
+echo "  Web UI:     .venv/bin/python -m demo.webui          (http://localhost:5000)"
 echo "  Dashboard:  .venv/bin/python -m demo.dashboard"
 echo "  Submit:     .venv/bin/python -m demo.submit_task 'neural network'"
+echo "  P2P submit: .venv/bin/python -m demo.submit_p2p 'neural network'"
 echo "  Logs:       tail -f logs/whisper-1.log"
 echo ""
 echo "Press Ctrl-C to stop all nodes."
