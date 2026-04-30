@@ -76,12 +76,16 @@ class _Handler(BaseHTTPRequestHandler):
 class WhisperNode:
     def __init__(
         self,
-        api_base:     str = "http://127.0.0.1:9002",
-        shard_id:     int = 1,
-        shard_file:   str = "demo/shards/shard-1.txt",
-        ledger_file:  str = "ledger.json",
-        debug_port:   int = 8888,
-        cluster_size: int = 0,
+        api_base:           str   = "http://127.0.0.1:9002",
+        shard_id:           int   = 1,
+        shard_file:         str   = "demo/shards/shard-1.txt",
+        ledger_file:        str   = "ledger.json",
+        debug_port:         int   = 8888,
+        cluster_size:       int   = 0,
+        lease_duration:     float = 30.0,
+        renew_threshold:    float = 15.0,
+        heartbeat_interval: float = 2.0,
+        suspect_after:      float = 10.0,
     ):
         self.debug_port  = debug_port
 
@@ -93,17 +97,21 @@ class WhisperNode:
         self._recovered_task_count: int = 0
 
         self.membership  = MembershipLayer(
-            transport    = self.transport,
-            our_key      = self.our_key,
-            our_shard_id = shard_id,
-            cluster_size = cluster_size,
-            on_peer_dead = self._on_peer_dead,
+            transport           = self.transport,
+            our_key             = self.our_key,
+            our_shard_id        = shard_id,
+            cluster_size        = cluster_size,
+            heartbeat_interval  = heartbeat_interval,
+            suspect_after       = suspect_after,
+            on_peer_dead        = self._on_peer_dead,
         )
 
         self.ledger      = TaskLedger(
-            transport    = self.transport,
-            our_key      = self.our_key,
-            ledger_file  = ledger_file,
+            transport        = self.transport,
+            our_key          = self.our_key,
+            ledger_file      = ledger_file,
+            lease_duration   = lease_duration,
+            renew_threshold  = renew_threshold,
         )
         self.ledger.set_peers_fn(self.membership.get_alive_peers)
         self.ledger.set_axl_connected_fn(self.membership.get_axl_connected)
@@ -292,12 +300,19 @@ def main():
                         help="Document shard this node is responsible for")
     parser.add_argument("--shard-file", required=True,
                         help="Path to this node's document shard text file")
-    parser.add_argument("--ledger-file",   default="ledger.json")
-    parser.add_argument("--debug-port",   type=int, default=8888,
-                        help="Port for the debug / dashboard HTTP API")
-    parser.add_argument("--cluster-size", type=int, default=6,
-                        help="Total expected nodes; used for quorum check (0=disable)")
-    parser.add_argument("--log-level",    default="INFO")
+    parser.add_argument("--ledger-file",         default="ledger.json")
+    parser.add_argument("--debug-port",          type=int,   default=8888)
+    parser.add_argument("--cluster-size",        type=int,   default=6,
+                        help="Total expected nodes for quorum check (0=disable)")
+    parser.add_argument("--lease-duration",      type=float, default=30.0,
+                        help="Lease validity in seconds (default 30; try 5 for fast demo)")
+    parser.add_argument("--renew-threshold",     type=float, default=15.0,
+                        help="Renew lease when less than N seconds remain")
+    parser.add_argument("--heartbeat-interval",  type=float, default=2.0,
+                        help="Heartbeat broadcast interval in seconds")
+    parser.add_argument("--suspect-after",       type=float, default=10.0,
+                        help="Silence threshold before marking peer SUSPECTED")
+    parser.add_argument("--log-level",           default="INFO")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -306,12 +321,16 @@ def main():
     )
 
     node = WhisperNode(
-        api_base     = args.api_base,
-        shard_id     = args.shard_id,
-        shard_file   = args.shard_file,
-        ledger_file  = args.ledger_file,
-        debug_port   = args.debug_port,
-        cluster_size = args.cluster_size,
+        api_base            = args.api_base,
+        shard_id            = args.shard_id,
+        shard_file          = args.shard_file,
+        ledger_file         = args.ledger_file,
+        debug_port          = args.debug_port,
+        cluster_size        = args.cluster_size,
+        lease_duration      = args.lease_duration,
+        renew_threshold     = args.renew_threshold,
+        heartbeat_interval  = args.heartbeat_interval,
+        suspect_after       = args.suspect_after,
     )
     node.start()
 

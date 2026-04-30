@@ -12,6 +12,14 @@ AXL_BIN="${AXL_BIN:-./axl/node}"
 SHARDS_DIR="${SHARDS_DIR:-./demo/shards}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
 
+# FAST_MODE=1: aggressive timing for quick judging demos (recovery in ~10s not ~40s)
+if [ "${FAST_MODE:-0}" = "1" ]; then
+    LEASE_DURATION=5; RENEW_THRESHOLD=2; HEARTBEAT_INTERVAL=1; SUSPECT_AFTER=4
+    echo "FAST_MODE enabled: lease=${LEASE_DURATION}s hb=${HEARTBEAT_INTERVAL}s suspect=${SUSPECT_AFTER}s"
+else
+    LEASE_DURATION=30; RENEW_THRESHOLD=15; HEARTBEAT_INTERVAL=2; SUSPECT_AFTER=10
+fi
+
 if [ ! -f "${AXL_BIN}" ]; then
     echo "AXL binary not found at ${AXL_BIN}"
     echo "Build it first:  cd ../axl && make build && cp node ../whisper-network/axl/"
@@ -78,13 +86,17 @@ for i in 1 2 3 4 5 6; do
     sleep 0.5  # stagger startup slightly
 
     "${PYTHON}" -m whisper.node \
-        --api-base     "http://127.0.0.1:${API_PORT}" \
-        --shard-id     "${i}" \
-        --shard-file   "${SHARDS_DIR}/shard-${i}.txt" \
-        --ledger-file  "data/ledger-${i}.json" \
-        --debug-port   "${DEBUG_PORT}" \
-        --cluster-size 6 \
-        --log-level    "${LOG_LEVEL}" \
+        --api-base            "http://127.0.0.1:${API_PORT}" \
+        --shard-id            "${i}" \
+        --shard-file          "${SHARDS_DIR}/shard-${i}.txt" \
+        --ledger-file         "data/ledger-${i}.json" \
+        --debug-port          "${DEBUG_PORT}" \
+        --cluster-size        6 \
+        --lease-duration      "${LEASE_DURATION}" \
+        --renew-threshold     "${RENEW_THRESHOLD}" \
+        --heartbeat-interval  "${HEARTBEAT_INTERVAL}" \
+        --suspect-after       "${SUSPECT_AFTER}" \
+        --log-level           "${LOG_LEVEL}" \
         > "logs/whisper-${i}.log" 2>&1 &
     PIDS+=($!)
 done

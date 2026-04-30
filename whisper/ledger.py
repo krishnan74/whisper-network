@@ -57,12 +57,16 @@ class TaskLedger:
     def __init__(
         self,
         transport,
-        our_key: str,
-        ledger_file: str = "ledger.json",
+        our_key:         str   = "",
+        ledger_file:     str   = "ledger.json",
+        lease_duration:  float = LEASE_DURATION,
+        renew_threshold: float = RENEW_THRESHOLD,
     ):
-        self.transport   = transport
-        self.our_key     = our_key
-        self.ledger_file = ledger_file
+        self.transport       = transport
+        self.our_key         = our_key
+        self.ledger_file     = ledger_file
+        self.lease_duration  = lease_duration
+        self.renew_threshold = renew_threshold
 
         self._tasks:          dict[str, Task] = {}
         self._seen_ids:       deque           = deque(maxlen=SEEN_CACHE_SIZE)
@@ -102,7 +106,7 @@ class TaskLedger:
         with self._lock:
             for task in self._tasks.values():
                 if task.leased_by == self.our_key and task.status == "in_progress":
-                    task.lease_expires = now + LEASE_DURATION
+                    task.lease_expires = now + self.lease_duration
                     task.version      += 1
                     recovered.append(task)
             if recovered:
@@ -186,7 +190,7 @@ class TaskLedger:
                 self._tasks_rescued += 1
             task.status        = "in_progress"
             task.leased_by     = self.our_key
-            task.lease_expires = now + LEASE_DURATION
+            task.lease_expires = now + self.lease_duration
             task.version      += 1
             self._persist()
 
@@ -201,7 +205,7 @@ class TaskLedger:
                     or task.leased_by != self.our_key
                     or task.status != "in_progress"):
                 return False
-            task.lease_expires = time.time() + LEASE_DURATION
+            task.lease_expires = time.time() + self.lease_duration
             task.version      += 1
             self._persist()
 
@@ -248,7 +252,7 @@ class TaskLedger:
             return [t for t in self._tasks.values()
                     if t.status == "in_progress"
                     and t.leased_by == self.our_key
-                    and (t.lease_expires - now) < RENEW_THRESHOLD]
+                    and (t.lease_expires - now) < self.renew_threshold]
 
     def get_my_task_ids(self) -> list[str]:
         with self._lock:

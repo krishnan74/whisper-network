@@ -47,16 +47,20 @@ class MembershipLayer:
     def __init__(
         self,
         transport,
-        our_key:       str,
-        our_shard_id:  int = 0,
-        cluster_size:  int = 0,   # total expected nodes; 0 = quorum check disabled
-        on_peer_dead:  Optional[Callable[[str], None]] = None,
+        our_key:            str   = "",
+        our_shard_id:       int   = 0,
+        cluster_size:       int   = 0,
+        heartbeat_interval: float = HEARTBEAT_INTERVAL,
+        suspect_after:      float = SUSPECT_AFTER,
+        on_peer_dead:       Optional[Callable[[str], None]] = None,
     ):
-        self.transport    = transport
-        self.our_key      = our_key
-        self.our_shard_id = our_shard_id
-        self.cluster_size = cluster_size
-        self.on_peer_dead = on_peer_dead
+        self.transport          = transport
+        self.our_key            = our_key
+        self.our_shard_id       = our_shard_id
+        self.cluster_size       = cluster_size
+        self.heartbeat_interval = heartbeat_interval
+        self.suspect_after      = suspect_after
+        self.on_peer_dead       = on_peer_dead
 
         self._peers:      dict[str, PeerInfo] = {}
         self._suspicions: dict[str, set]     = {}  # suspect -> set of reporters
@@ -126,7 +130,7 @@ class MembershipLayer:
           cutting failure detection from SUSPECT_AFTER down to SUSPECT_AFTER/2.
         """
         now = time.time()
-        fast_suspect_after = SUSPECT_AFTER / 2
+        fast_suspect_after = self.suspect_after / 2
         newly_suspected: list[str] = []
 
         with self._lock:
@@ -188,7 +192,7 @@ class MembershipLayer:
     def _heartbeat_loop(self):
         while self._running:
             self._broadcast_heartbeat()
-            time.sleep(HEARTBEAT_INTERVAL)
+            time.sleep(self.heartbeat_interval)
 
     def _broadcast_heartbeat(self):
         with self._lock:
@@ -217,7 +221,7 @@ class MembershipLayer:
                 for key, peer in list(self._peers.items()):
                     if peer.status == PeerStatus.DEAD:
                         continue
-                    if now - peer.last_seen > SUSPECT_AFTER and peer.status == PeerStatus.ALIVE:
+                    if now - peer.last_seen > self.suspect_after and peer.status == PeerStatus.ALIVE:
                         peer.status = PeerStatus.SUSPECTED
                         suspected_now.append(key)
                         self._log(
