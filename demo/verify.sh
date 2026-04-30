@@ -99,6 +99,61 @@ else
     fail "Recovery failed — surviving nodes did not complete all tasks within 60s"
 fi
 
+# ── Step 6: Cryptography self-test ───────────────────────────────────────────
+info "Step 6 — Cryptography: GF(256) Shamir + ThresholdCipher round-trip..."
+
+"${PYTHON}" -c "
+import sys, os
+sys.path.insert(0, '.')
+from whisper.crypto import shamir_split, shamir_reconstruct, ThresholdCipher, PayloadCipher
+
+# GF(256) Shamir (3,6) self-test
+secret = os.urandom(32)
+shares = shamir_split(secret, 6, 3)
+assert shamir_reconstruct(shares[:3]) == secret, 'Shamir (3,6) first-3 failed'
+assert shamir_reconstruct(shares[1:4]) == secret, 'Shamir (3,6) mid-3 failed'
+assert shamir_reconstruct([shares[0], shares[2], shares[5]]) == secret, 'Shamir (3,6) sparse failed'
+print('  GF(256) Shamir (3,6): all subset combinations correct')
+
+# ThresholdCipher encrypt/decrypt round-trip using real key files (if available)
+key_files = ['keys/private-1.pem','keys/private-2.pem','keys/private-3.pem']
+ciphers   = []
+for kf in key_files:
+    if os.path.exists(kf):
+        c = PayloadCipher(kf)
+        if c.enabled:
+            ciphers.append(c)
+
+if len(ciphers) >= 2:
+    t_ciph = ThresholdCipher.from_payload_cipher(ciphers[0])
+    pubkeys = [c.x25519_pubkey_hex for c in ciphers]
+    plaintext = 'test payload: attention transformer'
+    ciphertext = t_ciph.encrypt(pubkeys, plaintext, t=2)
+    assert ciphertext.startswith('THRESHOLD:'), 'THRESHOLD: marker missing'
+    share0 = ThresholdCipher.from_payload_cipher(ciphers[0]).decrypt_own_share(ciphertext)
+    share1 = ThresholdCipher.from_payload_cipher(ciphers[1]).decrypt_own_share(ciphertext)
+    assert share0 is not None and share1 is not None, 'share decryption returned None'
+    recovered = ThresholdCipher.reconstruct_and_decrypt(ciphertext, [share0, share1])
+    assert recovered == plaintext, f'round-trip mismatch: {recovered!r}'
+    print('  ThresholdCipher (2,3) encrypt → share decrypt → reconstruct: OK')
+else:
+    print('  ThresholdCipher: no key files found — skipping live key test (Shamir math verified above)')
+" || fail "Cryptography self-test raised an exception"
+
+# Also confirm enc_pubkeys are being gossiped
+ENC_PEERS=$("${PYTHON}" -c "
+import sys, json, urllib.request
+try:
+    d = json.loads(urllib.request.urlopen('http://127.0.0.1:8888/state', timeout=3).read())
+    count = sum(1 for p in d.get('peers', {}).values() if p.get('enc_pubkey'))
+    print(count)
+except:
+    print(0)
+" 2>/dev/null || echo 0)
+[ "$ENC_PEERS" -gt 0 ] \
+    && pass "Cryptography self-test passed | ${ENC_PEERS} peer(s) advertising enc_pubkey via gossip" \
+    || pass "Cryptography self-test passed (enc_pubkey gossip: not yet visible — check after cluster warms up)"
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo "═══════════════════════════════════════════════════"

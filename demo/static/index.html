@@ -277,6 +277,8 @@ svg { width: 100%; height: 100%; }
 .tdot.pending    { background: var(--muted); }
 .tid { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
 .tshard { color: var(--muted); font-size: 9px; }
+.tenc { font-size: 8px; padding: 1px 3px; border-radius: 2px; flex-shrink: 0; background: #3b82f6; color: #fff; font-weight: 600; }
+.tenc.thr { background: #f59e0b; color: #000; }
 
 /* scrollbar */
 ::-webkit-scrollbar { width: 4px; }
@@ -655,10 +657,16 @@ function updateTaskList(tasks) {
   sorted.forEach(t => {
     const el = document.createElement('div');
     el.className = 'task-row';
+    const encBadge = t.threshold_t > 0
+      ? `<div class="tenc thr">${t.threshold_t}-of-n</div>`
+      : t.encrypted
+        ? `<div class="tenc">ENC</div>`
+        : '';
     el.innerHTML = `
       <div class="tdot ${t.status}"></div>
       <div class="tid">${t.task_id}</div>
       <div class="tshard">s${t.shard_id}</div>
+      ${encBadge}
     `;
     panel.appendChild(el);
   });

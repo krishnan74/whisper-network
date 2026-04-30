@@ -228,19 +228,18 @@ fi
 printf "  ${BLD}Results for '${QUERY}':${RST}\n"
 for i in 1 2 3; do
     PORT=$((8887 + i))
-    STATE=$(curl -sf "http://127.0.0.1:${PORT}/state" 2>/dev/null || echo '{}')
-    python3 - <<PYEOF
+    curl -sf "http://127.0.0.1:${PORT}/state" 2>/dev/null \
+    | python3 -c "
 import json, sys
 try:
-    d = json.loads('''${STATE}''')
-    tasks = d.get('tasks', {})
-    for t in sorted(tasks.values(), key=lambda x: x.get('shard_id', 0)):
+    d = json.load(sys.stdin)
+    for t in sorted(d.get('tasks', {}).values(), key=lambda x: x.get('shard_id', 0)):
         if t['status'] == 'completed' and t.get('result'):
-            print(f"  s{t['shard_id']}: {t['result'][:120]}")
+            print(f\"  s{t['shard_id']}: {t['result'][:120]}\")
 except:
     pass
-PYEOF
-done 2>/dev/null | sort -u | head -12
+" 2>/dev/null
+done | sort -u | head -12
 
 hr
 printf "\n  ${BLD}Summary${RST}\n"
