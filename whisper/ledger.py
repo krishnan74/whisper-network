@@ -21,7 +21,7 @@ from collections import deque
 from dataclasses import asdict, dataclass
 from typing import Callable, Optional
 
-from whisper.crypto import Signer, PayloadCipher
+from whisper.crypto import Signer, PayloadCipher, ThresholdCipher
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ class Task:
     completed_at:  Optional[float] = None
     submitter_key: Optional[str]  = None  # AXL key to notify on completion
     encrypted:     bool           = False  # True if payload is X25519 ECDH + AES-GCM encrypted
+    threshold_t:   int            = 0      # > 0 when payload is THRESHOLD: t-of-n Shamir encrypted
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -73,7 +74,8 @@ class TaskLedger:
         self.lease_duration  = lease_duration
         self.renew_threshold = renew_threshold
         self._signer         = signer or Signer()
-        self._cipher: Optional[PayloadCipher] = None  # set by node.py after init
+        self._cipher:    Optional[PayloadCipher]    = None  # set by node.py after init
+        self._threshold: Optional[ThresholdCipher] = None  # set by node.py after init
 
         self._tasks:          dict[str, Task] = {}
         self._seen_ids:       deque           = deque(maxlen=SEEN_CACHE_SIZE)
@@ -89,6 +91,8 @@ class TaskLedger:
         self._local_result_fn: Optional[Callable[[dict], None]] = None
         # Injected by node: returns X25519 enc_pubkey for shard_id's home node
         self._enc_pubkey_fn: Callable[[int], Optional[str]] = lambda shard_id: None
+        # Injected by node: returns Optional[(t, [all_enc_pubkeys])] for threshold encryption
+        self._threshold_params_fn = lambda: None
 
         self._load()
 
@@ -108,6 +112,13 @@ class TaskLedger:
 
     def set_payload_cipher(self, cipher: "PayloadCipher"):
         self._cipher = cipher
+
+    def set_threshold_cipher(self, cipher: "ThresholdCipher"):
+        self._threshold = cipher
+
+    def set_threshold_fn(self, fn):
+        """Inject fn() → Optional[tuple[int, list[str]]] = (t, enc_pubkeys) for all nodes."""
+        self._threshold_params_fn = fn
 
     def recover_identity(self) -> int:
         """
@@ -175,16 +186,34 @@ class TaskLedger:
 
     def submit_task(self, task_id: str, payload: str, shard_id: int,
                     submitter_key: Optional[str] = None) -> Task:
-        encrypted = False
-        if self._cipher and self._cipher.enabled:
+        encrypted   = False
+        threshold_t = 0
+
+        # Try threshold encryption first (strongest — requires t-of-n nodes to decrypt)
+        if self._threshold and self._threshold.enabled:
+            params = self._threshold_params_fn()
+            if params:
+                t, pubkeys = params
+                try:
+                    payload     = self._threshold.encrypt(pubkeys, payload, t)
+                    threshold_t = t
+                    logger.info(
+                        "task %s shard-%d threshold encrypted (%d-of-%d)",
+                        task_id[:12], shard_id, t, len(pubkeys),
+                    )
+                except Exception as e:
+                    logger.warning("threshold encryption failed: %s — falling back", e)
+
+        # Fall back to per-shard encryption if threshold not available
+        if not threshold_t and self._cipher and self._cipher.enabled:
             target_pubkey = self._enc_pubkey_fn(shard_id)
             if target_pubkey:
                 try:
                     payload   = self._cipher.encrypt(target_pubkey, payload)
                     encrypted = True
-                    logger.info("task %s shard-%d payload encrypted to home node", task_id[:12], shard_id)
+                    logger.info("task %s shard-%d encrypted to home node", task_id[:12], shard_id)
                 except Exception as e:
-                    logger.warning("payload encryption failed for shard-%d: %s", shard_id, e)
+                    logger.warning("per-shard encryption failed: %s", e)
 
         task = Task(
             task_id       = task_id,
@@ -198,14 +227,35 @@ class TaskLedger:
             version       = 1,
             submitter_key = submitter_key,
             encrypted     = encrypted,
+            threshold_t   = threshold_t,
         )
         with self._lock:
             self._tasks[task_id] = task
             self._persist()
         self._gossip_task(task)
-        enc_tag = " [encrypted]" if encrypted else ""
-        self._log(f"submitted task {task_id[:12]} shard-{shard_id}{enc_tag}")
+        if threshold_t:
+            tag = f" [threshold {threshold_t}-of-n]"
+        elif encrypted:
+            tag = " [encrypted]"
+        else:
+            tag = ""
+        self._log(f"submitted task {task_id[:12]} shard-{shard_id}{tag}")
         return task
+
+    def release_lease(self, task_id: str) -> bool:
+        """Release our lease on a single task back to pending (e.g. share collection failed)."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task or task.leased_by != self.our_key:
+                return False
+            task.status       = "pending"
+            task.leased_by    = None
+            task.lease_expires = 0.0
+            task.version     += 1
+            self._persist()
+        self._gossip_task(task)
+        self._log(f"released lease on {task_id[:12]} (threshold share collection failed)")
+        return True
 
     def claim_task(self, task_id: str) -> bool:
         """

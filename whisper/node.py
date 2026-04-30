@@ -12,16 +12,18 @@ Also exposes a tiny debug HTTP server (default :8888) with:
   POST /submit  — inject a new task into the ledger (used by submit_task.py)
 """
 import argparse
+import base64
 import json
 import logging
 import os
 import signal
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
-from whisper.crypto import Signer, PayloadCipher
+from whisper.crypto import Signer, PayloadCipher, ThresholdCipher
 from whisper.ledger import TaskLedger
 from whisper.membership import MembershipLayer
 from whisper.runtime import AgentRuntime
@@ -106,6 +108,10 @@ class WhisperNode:
         self._task_results: list      = []   # buffered task_result AXL push notifications
         self._results_lock            = threading.Lock()
 
+        # Threshold share collection: task_id → (event, needed, [shares])
+        self._share_collections: dict = {}
+        self._threshold_cipher        = ThresholdCipher.from_payload_cipher(self._cipher)
+
         self.membership  = MembershipLayer(
             transport           = self.transport,
             our_key             = self.our_key,
@@ -132,14 +138,17 @@ class WhisperNode:
         self.ledger.set_local_result_fn(self._buffer_result)
         self.ledger.set_enc_pubkey_fn(self._get_enc_pubkey_for_shard)
         self.ledger.set_payload_cipher(self._cipher)
+        self.ledger.set_threshold_cipher(self._threshold_cipher)
+        self.ledger.set_threshold_fn(self._get_threshold_params)
 
         self.runtime     = AgentRuntime(
-            ledger         = self.ledger,
-            our_key        = self.our_key,
-            shard_id       = shard_id,
-            shard_dir      = os.path.dirname(os.path.abspath(shard_file)),
-            membership     = self.membership,
-            payload_cipher = self._cipher,
+            ledger             = self.ledger,
+            our_key            = self.our_key,
+            shard_id           = shard_id,
+            shard_dir          = os.path.dirname(os.path.abspath(shard_file)),
+            membership         = self.membership,
+            payload_cipher     = self._cipher,
+            collect_shares_fn  = self._collect_threshold_shares,
         )
 
         self.membership.set_tasks_held_fn(self.ledger.get_my_task_ids)
@@ -216,6 +225,10 @@ class WhisperNode:
                             (msg.get("result") or "")[:80],
                         )
                         self._buffer_result(msg)
+                    elif mtype == "share_request":
+                        self._handle_share_request(msg)
+                    elif mtype == "share_response":
+                        self._handle_share_response(msg)
                     else:
                         logger.debug("unknown message type: %s", mtype)
                 except Exception as e:
@@ -293,6 +306,117 @@ class WhisperNode:
         if released:
             time.sleep(1.5)
         logger.info("shutdown complete (%d lease(s) released)", released)
+
+    def _get_threshold_params(self):
+        """
+        Return (t, [enc_pubkeys]) if all cluster nodes' encryption keys are known,
+        enabling (ceil(n/2))-of-n threshold encryption. Returns None otherwise.
+        """
+        if not self._threshold_cipher.enabled:
+            return None
+        own_pubkey   = self._cipher.x25519_pubkey_hex
+        peers_info   = self.membership.get_all_peers()
+        peer_pubkeys = [p.enc_pubkey for p in peers_info.values() if p.enc_pubkey]
+
+        all_pubkeys = list(dict.fromkeys([own_pubkey] + peer_pubkeys))  # deduplicate, keep order
+        n = len(all_pubkeys)
+        if n < 3:
+            return None  # need at least 3 nodes for meaningful threshold
+
+        t = (n + 1) // 2  # majority: ceil(n/2)  → 3-of-6, 2-of-3, etc.
+        return (t, all_pubkeys)
+
+    def _collect_threshold_shares(self, task) -> list:
+        """
+        Collect t Shamir shares from alive peers for a THRESHOLD: task.
+        Returns list of (x, share_bytes) with at least task.threshold_t entries,
+        or fewer if not enough peers respond within the timeout.
+        """
+        payload = task.payload
+        if not payload.startswith(ThresholdCipher.MARKER):
+            return []
+
+        own_share = self._threshold_cipher.decrypt_own_share(payload)
+        if own_share is None:
+            return []
+
+        t = task.threshold_t or 1
+        if t <= 1:
+            return [own_share]
+
+        # Set up collection slot
+        event = threading.Event()
+        with self._results_lock:
+            self._share_collections[task.task_id] = {
+                "event":  event,
+                "needed": t,
+                "shares": [own_share],
+            }
+
+        # Broadcast share_request to all alive peers
+        peers = self.membership.get_alive_peers()
+        msg = {
+            "type":    "share_request",
+            "msg_id":  str(uuid.uuid4()),
+            "from":    self.our_key,
+            "task_id": task.task_id,
+        }
+        for peer in peers:
+            self.transport.send(peer, msg)
+
+        # Wait up to 4s for enough shares
+        event.wait(timeout=4.0)
+
+        with self._results_lock:
+            col = self._share_collections.pop(task.task_id, {})
+        return col.get("shares", [own_share])
+
+    def _handle_share_request(self, msg: dict):
+        """Peer wants our Shamir share for a threshold task — decrypt and send it back."""
+        task_id   = msg.get("task_id")
+        requester = msg.get("from")
+        if not task_id or not requester:
+            return
+        task = next((t for t in self.ledger.get_all_tasks() if t.task_id == task_id), None)
+        if not task or not task.payload.startswith(ThresholdCipher.MARKER):
+            return
+        share = self._threshold_cipher.decrypt_own_share(task.payload)
+        if share is None:
+            return
+        x, share_bytes = share
+        try:
+            self.transport.send(requester, {
+                "type":    "share_response",
+                "msg_id":  str(uuid.uuid4()),
+                "from":    self.our_key,
+                "task_id": task_id,
+                "x":       x,
+                "share":   base64.b64encode(share_bytes).decode(),
+            })
+        except Exception as e:
+            logger.debug("share_response send failed: %s", e)
+
+    def _handle_share_response(self, msg: dict):
+        """Inbound share from a peer — store it and signal if we now have enough."""
+        task_id = msg.get("task_id")
+        if not task_id:
+            return
+        try:
+            x           = int(msg["x"])
+            share_bytes = base64.b64decode(msg["share"])
+        except Exception:
+            return
+
+        with self._results_lock:
+            col = self._share_collections.get(task_id)
+            if col is None:
+                return
+            # Deduplicate by x
+            if any(s[0] == x for s in col["shares"]):
+                return
+            col["shares"].append((x, share_bytes))
+            if len(col["shares"]) >= col["needed"]:
+                col["event"].set()
 
     def _get_enc_pubkey_for_shard(self, shard_id: int) -> Optional[str]:
         """Return the X25519 encryption pubkey of the home node for shard_id."""

@@ -27,17 +27,19 @@ class AgentRuntime:
         our_key:    str,
         shard_id:   int,
         shard_dir:  str,
-        membership  = None,
-        num_shards: int = 6,
-        payload_cipher = None,
+        membership      = None,
+        num_shards:  int = 6,
+        payload_cipher   = None,
+        collect_shares_fn = None,
     ):
-        self.ledger         = ledger
-        self.our_key        = our_key
-        self.shard_id       = shard_id   # this node's home shard
-        self.shard_dir      = shard_dir
-        self.membership     = membership  # used for shard-affinity routing
-        self.num_shards     = num_shards
-        self.payload_cipher = payload_cipher  # Optional[PayloadCipher]
+        self.ledger           = ledger
+        self.our_key          = our_key
+        self.shard_id         = shard_id   # this node's home shard
+        self.shard_dir        = shard_dir
+        self.membership       = membership  # used for shard-affinity routing
+        self.num_shards       = num_shards
+        self.payload_cipher   = payload_cipher   # Optional[PayloadCipher]
+        self.collect_shares_fn = collect_shares_fn  # Optional[Callable]
 
         # Load ALL shards — any surviving node can execute any task
         self._shards: dict[int, list[str]] = {}
@@ -133,25 +135,47 @@ class AgentRuntime:
                 logger.info("lost lease race for %s, skipping", task.task_id[:12])
                 continue
 
-            origin = "home" if task.shard_id == self.shard_id else "survivor"
+            from whisper.crypto import ThresholdCipher as _TC
+            origin  = "home" if task.shard_id == self.shard_id else "survivor"
             payload = task.payload
 
-            if task.encrypted:
+            # ── Threshold decryption (t-of-n Shamir) ──────────────────────────
+            if task.threshold_t > 0 and payload.startswith(_TC.MARKER):
+                if not self.collect_shares_fn:
+                    result = f"shard-{task.shard_id}: [threshold encrypted — no share collection fn]"
+                    self.ledger.complete_task(task.task_id, result)
+                    break
+                shares = self.collect_shares_fn(task)
+                if len(shares) < task.threshold_t:
+                    logger.warning(
+                        "task %s: only %d/%d shares collected — releasing lease to retry",
+                        task.task_id[:12], len(shares), task.threshold_t,
+                    )
+                    self.ledger.release_lease(task.task_id)
+                    break
+                try:
+                    payload = _TC.reconstruct_and_decrypt(payload, shares)
+                    logger.info(
+                        "task %s: threshold decrypted (%d shares) [%s]",
+                        task.task_id[:12], len(shares), origin,
+                    )
+                except Exception as e:
+                    result = f"shard-{task.shard_id}: [threshold decryption failed: {e}]"
+                    self.ledger.complete_task(task.task_id, result)
+                    break
+
+            # ── Per-shard ECDH decryption ──────────────────────────────────────
+            elif task.encrypted and payload.startswith("ENC:"):
                 if self.payload_cipher and self.payload_cipher.enabled:
                     try:
                         payload = self.payload_cipher.decrypt(payload)
                         logger.info("task %s: payload decrypted [%s]", task.task_id[:12], origin)
                     except Exception:
-                        # Survivor node can't decrypt home node's ciphertext — report it honestly
-                        result = f"shard-{task.shard_id}: [encrypted payload — home node offline, cannot decrypt]"
+                        result = f"shard-{task.shard_id}: [encrypted payload — home node offline]"
                         self.ledger.complete_task(task.task_id, result)
-                        logger.warning(
-                            "task %s: decryption failed (not home node) — marking done with notice",
-                            task.task_id[:12],
-                        )
                         break
                 else:
-                    result = f"shard-{task.shard_id}: [encrypted payload — no decryption key configured]"
+                    result = f"shard-{task.shard_id}: [encrypted payload — no key configured]"
                     self.ledger.complete_task(task.task_id, result)
                     break
 
