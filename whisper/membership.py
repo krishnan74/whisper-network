@@ -36,11 +36,12 @@ class PeerStatus(str, Enum):
 
 @dataclass
 class PeerInfo:
-    peer_key:   str
-    status:     PeerStatus     = PeerStatus.ALIVE
-    last_seen:  float          = field(default_factory=time.time)
-    tasks_held: list           = field(default_factory=list)
-    shard_id:   Optional[int]  = None  # home shard, learned from heartbeats
+    peer_key:    str
+    status:      PeerStatus     = PeerStatus.ALIVE
+    last_seen:   float          = field(default_factory=time.time)
+    tasks_held:  list           = field(default_factory=list)
+    shard_id:    Optional[int]  = None  # home shard, learned from heartbeats
+    enc_pubkey:  Optional[str]  = None  # X25519 pubkey for payload encryption
 
 
 class MembershipLayer:
@@ -73,6 +74,9 @@ class MembershipLayer:
 
         # Injected by node.py so heartbeats can include current tasks
         self._tasks_held_fn: Callable[[], list[str]] = lambda: []
+
+        # Our own X25519 pubkey to advertise in heartbeats (set by node.py)
+        self.our_enc_pubkey: Optional[str] = None
 
         self._running = False
 
@@ -124,6 +128,12 @@ class MembershipLayer:
                 if peer.shard_id == shard_id and peer.status == PeerStatus.ALIVE:
                     return key
         return None
+
+    def get_enc_pubkey(self, peer_key: str) -> Optional[str]:
+        """Return the X25519 encryption pubkey advertised by peer_key, or None."""
+        with self._lock:
+            peer = self._peers.get(peer_key)
+            return peer.enc_pubkey if peer else None
 
     def get_axl_connected(self) -> set[str]:
         with self._lock:
@@ -239,6 +249,8 @@ class MembershipLayer:
             "known_peers": known,
             "hops":        GOSSIP_HOPS,
         }
+        if self.our_enc_pubkey:
+            msg["enc_pubkey"] = self.our_enc_pubkey
         for peer_key in alive:
             self.transport.send(peer_key, msg)
 
@@ -324,6 +336,8 @@ class MembershipLayer:
             peer.tasks_held = msg.get("tasks_held", [])
             if msg.get("shard_id") is not None:
                 peer.shard_id = int(msg["shard_id"])
+            if msg.get("enc_pubkey"):
+                peer.enc_pubkey = msg["enc_pubkey"]
 
             if peer.status == PeerStatus.SUSPECTED:
                 peer.status = PeerStatus.ALIVE

@@ -21,7 +21,7 @@ from collections import deque
 from dataclasses import asdict, dataclass
 from typing import Callable, Optional
 
-from whisper.crypto import Signer
+from whisper.crypto import Signer, PayloadCipher
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,7 @@ class Task:
     version:       int            = 0
     completed_at:  Optional[float] = None
     submitter_key: Optional[str]  = None  # AXL key to notify on completion
+    encrypted:     bool           = False  # True if payload is X25519 ECDH + AES-GCM encrypted
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -72,6 +73,7 @@ class TaskLedger:
         self.lease_duration  = lease_duration
         self.renew_threshold = renew_threshold
         self._signer         = signer or Signer()
+        self._cipher: Optional[PayloadCipher] = None  # set by node.py after init
 
         self._tasks:          dict[str, Task] = {}
         self._seen_ids:       deque           = deque(maxlen=SEEN_CACHE_SIZE)
@@ -85,6 +87,8 @@ class TaskLedger:
         self._axl_connected_fn: Callable[[], set[str]] = lambda: set()
         # Injected by node: called when we complete a task we submitted ourselves
         self._local_result_fn: Optional[Callable[[dict], None]] = None
+        # Injected by node: returns X25519 enc_pubkey for shard_id's home node
+        self._enc_pubkey_fn: Callable[[int], Optional[str]] = lambda shard_id: None
 
         self._load()
 
@@ -98,6 +102,12 @@ class TaskLedger:
 
     def set_local_result_fn(self, fn: Callable[[dict], None]):
         self._local_result_fn = fn
+
+    def set_enc_pubkey_fn(self, fn: Callable[[int], Optional[str]]):
+        self._enc_pubkey_fn = fn
+
+    def set_payload_cipher(self, cipher: "PayloadCipher"):
+        self._cipher = cipher
 
     def recover_identity(self) -> int:
         """
@@ -165,6 +175,17 @@ class TaskLedger:
 
     def submit_task(self, task_id: str, payload: str, shard_id: int,
                     submitter_key: Optional[str] = None) -> Task:
+        encrypted = False
+        if self._cipher and self._cipher.enabled:
+            target_pubkey = self._enc_pubkey_fn(shard_id)
+            if target_pubkey:
+                try:
+                    payload   = self._cipher.encrypt(target_pubkey, payload)
+                    encrypted = True
+                    logger.info("task %s shard-%d payload encrypted to home node", task_id[:12], shard_id)
+                except Exception as e:
+                    logger.warning("payload encryption failed for shard-%d: %s", shard_id, e)
+
         task = Task(
             task_id       = task_id,
             payload       = payload,
@@ -176,12 +197,14 @@ class TaskLedger:
             created_at    = time.time(),
             version       = 1,
             submitter_key = submitter_key,
+            encrypted     = encrypted,
         )
         with self._lock:
             self._tasks[task_id] = task
             self._persist()
         self._gossip_task(task)
-        self._log(f"submitted task {task_id[:12]} shard-{shard_id}")
+        enc_tag = " [encrypted]" if encrypted else ""
+        self._log(f"submitted task {task_id[:12]} shard-{shard_id}{enc_tag}")
         return task
 
     def claim_task(self, task_id: str) -> bool:

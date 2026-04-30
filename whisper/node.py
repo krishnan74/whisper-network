@@ -21,7 +21,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
-from whisper.crypto import Signer
+from whisper.crypto import Signer, PayloadCipher
 from whisper.ledger import TaskLedger
 from whisper.membership import MembershipLayer
 from whisper.runtime import AgentRuntime
@@ -98,6 +98,7 @@ class WhisperNode:
         self.transport   = AXLTransport(api_base)
         self.our_key     = self._wait_for_axl()
         self._signer     = Signer(key_file)
+        self._cipher     = PayloadCipher(key_file)
         logger.info("our key: %s...", self.our_key[:16])
 
         self._axl_mesh_stats: dict    = {"total_peers": 0, "up_peers": 0}
@@ -114,6 +115,8 @@ class WhisperNode:
             suspect_after       = suspect_after,
             on_peer_dead        = self._on_peer_dead,
         )
+        if self._cipher.enabled:
+            self.membership.our_enc_pubkey = self._cipher.x25519_pubkey_hex
 
         self.ledger      = TaskLedger(
             transport        = self.transport,
@@ -126,13 +129,16 @@ class WhisperNode:
         self.ledger.set_peers_fn(self.membership.get_alive_peers)
         self.ledger.set_axl_connected_fn(self.membership.get_axl_connected)
         self.ledger.set_local_result_fn(self._buffer_result)
+        self.ledger.set_enc_pubkey_fn(self._get_enc_pubkey_for_shard)
+        self.ledger.set_payload_cipher(self._cipher)
 
         self.runtime     = AgentRuntime(
-            ledger     = self.ledger,
-            our_key    = self.our_key,
-            shard_id   = shard_id,
-            shard_dir  = os.path.dirname(os.path.abspath(shard_file)),
-            membership = self.membership,
+            ledger         = self.ledger,
+            our_key        = self.our_key,
+            shard_id       = shard_id,
+            shard_dir      = os.path.dirname(os.path.abspath(shard_file)),
+            membership     = self.membership,
+            payload_cipher = self._cipher,
         )
 
         self.membership.set_tasks_held_fn(self.ledger.get_my_task_ids)
@@ -262,6 +268,15 @@ class WhisperNode:
         if released:
             time.sleep(1.5)
         logger.info("shutdown complete (%d lease(s) released)", released)
+
+    def _get_enc_pubkey_for_shard(self, shard_id: int) -> Optional[str]:
+        """Return the X25519 encryption pubkey of the home node for shard_id."""
+        if shard_id == self.runtime.shard_id:
+            return self._cipher.x25519_pubkey_hex  # self
+        peer_key = self.membership.get_peer_for_shard(shard_id)
+        if peer_key:
+            return self.membership.get_enc_pubkey(peer_key)
+        return None
 
     def _buffer_result(self, result: dict):
         with self._results_lock:

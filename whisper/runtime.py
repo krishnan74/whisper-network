@@ -29,13 +29,15 @@ class AgentRuntime:
         shard_dir:  str,
         membership  = None,
         num_shards: int = 6,
+        payload_cipher = None,
     ):
-        self.ledger     = ledger
-        self.our_key    = our_key
-        self.shard_id   = shard_id   # this node's home shard
-        self.shard_dir  = shard_dir
-        self.membership = membership  # used for shard-affinity routing
-        self.num_shards = num_shards
+        self.ledger         = ledger
+        self.our_key        = our_key
+        self.shard_id       = shard_id   # this node's home shard
+        self.shard_dir      = shard_dir
+        self.membership     = membership  # used for shard-affinity routing
+        self.num_shards     = num_shards
+        self.payload_cipher = payload_cipher  # Optional[PayloadCipher]
 
         # Load ALL shards — any surviving node can execute any task
         self._shards: dict[int, list[str]] = {}
@@ -118,11 +120,32 @@ class AgentRuntime:
                 continue
 
             origin = "home" if task.shard_id == self.shard_id else "survivor"
+            payload = task.payload
+
+            if task.encrypted:
+                if self.payload_cipher and self.payload_cipher.enabled:
+                    try:
+                        payload = self.payload_cipher.decrypt(payload)
+                        logger.info("task %s: payload decrypted [%s]", task.task_id[:12], origin)
+                    except Exception:
+                        # Survivor node can't decrypt home node's ciphertext — report it honestly
+                        result = f"shard-{task.shard_id}: [encrypted payload — home node offline, cannot decrypt]"
+                        self.ledger.complete_task(task.task_id, result)
+                        logger.warning(
+                            "task %s: decryption failed (not home node) — marking done with notice",
+                            task.task_id[:12],
+                        )
+                        break
+                else:
+                    result = f"shard-{task.shard_id}: [encrypted payload — no decryption key configured]"
+                    self.ledger.complete_task(task.task_id, result)
+                    break
+
             logger.info(
                 "executing task %s (shard-%d) [%s]",
                 task.task_id[:12], task.shard_id, origin,
             )
-            result = self.execute(task.payload, task.shard_id)
+            result = self.execute(payload, task.shard_id)
             self.ledger.complete_task(task.task_id, result)
             break  # process one task per scan cycle
 
