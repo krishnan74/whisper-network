@@ -41,7 +41,8 @@ class PeerInfo:
     last_seen:   float          = field(default_factory=time.time)
     tasks_held:  list           = field(default_factory=list)
     shard_id:    Optional[int]  = None  # home shard, learned from heartbeats
-    enc_pubkey:  Optional[str]  = None  # X25519 pubkey for payload encryption
+    enc_pubkey:          Optional[str]   = None   # X25519 pubkey for payload encryption
+    reported_lease_duration: Optional[float] = None  # lease duration this peer advertises
 
 
 class MembershipLayer:
@@ -77,6 +78,8 @@ class MembershipLayer:
 
         # Our own X25519 pubkey to advertise in heartbeats (set by node.py)
         self.our_enc_pubkey: Optional[str] = None
+        # Our current lease duration, advertised in heartbeats for convergence
+        self.our_lease_duration: float = 30.0
 
         self._running = False
 
@@ -147,6 +150,23 @@ class MembershipLayer:
         with self._lock:
             peer = self._peers.get(peer_key)
             return peer.enc_pubkey if peer else None
+
+    def get_consensus_lease_duration(self) -> float:
+        """
+        Return the minimum lease duration reported by any alive peer (including self).
+
+        Using the minimum ensures the whole cluster converges on the most conservative
+        value — preventing any node from holding leases longer than its peers expect,
+        which would block recovery after failures.
+        """
+        with self._lock:
+            durations = [
+                p.reported_lease_duration
+                for p in self._peers.values()
+                if p.status != PeerStatus.DEAD and p.reported_lease_duration is not None
+            ]
+        durations.append(self.our_lease_duration)
+        return min(durations)
 
     def get_axl_connected(self) -> set[str]:
         with self._lock:
@@ -267,14 +287,15 @@ class MembershipLayer:
             known = [k for k, p in self._peers.items() if p.status == PeerStatus.ALIVE]
 
         msg = {
-            "type":        "heartbeat",
-            "msg_id":      str(uuid.uuid4()),
-            "from":        self.our_key,
-            "timestamp":   time.time(),
-            "shard_id":    self.our_shard_id,
-            "tasks_held":  self._tasks_held_fn(),
-            "known_peers": known,
-            "hops":        GOSSIP_HOPS,
+            "type":           "heartbeat",
+            "msg_id":         str(uuid.uuid4()),
+            "from":           self.our_key,
+            "timestamp":      time.time(),
+            "shard_id":       self.our_shard_id,
+            "tasks_held":     self._tasks_held_fn(),
+            "known_peers":    known,
+            "hops":           GOSSIP_HOPS,
+            "lease_duration": self.our_lease_duration,
         }
         if self.our_enc_pubkey:
             msg["enc_pubkey"] = self.our_enc_pubkey
@@ -367,6 +388,8 @@ class MembershipLayer:
                 peer.shard_id = int(msg["shard_id"])
             if msg.get("enc_pubkey"):
                 peer.enc_pubkey = msg["enc_pubkey"]
+            if msg.get("lease_duration"):
+                peer.reported_lease_duration = float(msg["lease_duration"])
 
             if peer.status == PeerStatus.SUSPECTED:
                 peer.status = PeerStatus.ALIVE

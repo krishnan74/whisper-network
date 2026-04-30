@@ -117,6 +117,7 @@ class WhisperNode:
         )
         if self._cipher.enabled:
             self.membership.our_enc_pubkey = self._cipher.x25519_pubkey_hex
+        self.membership.our_lease_duration = lease_duration
 
         self.ledger      = TaskLedger(
             transport        = self.transport,
@@ -179,7 +180,8 @@ class WhisperNode:
         self.runtime.start()
         self._start_debug_server()
         self._start_recv_loop()
-        threading.Thread(target=self._axl_sync_loop, daemon=True, name="axl-sync").start()
+        threading.Thread(target=self._axl_sync_loop,        daemon=True, name="axl-sync").start()
+        threading.Thread(target=self._lease_convergence_loop, daemon=True, name="lease-conv").start()
         logger.info(
             "whisper node running (shard-%d, debug :%d)",
             self.runtime.shard_id, self.debug_port,
@@ -232,6 +234,29 @@ class WhisperNode:
             except Exception as e:
                 logger.debug("AXL topology sync error: %s", e)
             time.sleep(5)
+
+    def _lease_convergence_loop(self):
+        """
+        Every 15s, compute the cluster-consensus lease duration (minimum reported
+        by any alive peer) and adopt it if it differs from our current setting by
+        more than 10%.  Keeps the whole cluster converged on one value without
+        manual reconfiguration.
+        """
+        while True:
+            time.sleep(15)
+            try:
+                consensus = self.membership.get_consensus_lease_duration()
+                current   = self.ledger.lease_duration
+                if abs(consensus - current) / max(current, 0.1) > 0.10:
+                    logger.info(
+                        "lease convergence: %.1fs → %.1fs (cluster consensus)",
+                        current, consensus,
+                    )
+                    self.ledger.lease_duration   = consensus
+                    self.ledger.renew_threshold  = consensus * 0.4
+                    self.membership.our_lease_duration = consensus
+            except Exception as e:
+                logger.debug("lease convergence error: %s", e)
 
     def _handle_p2p_task_submit(self, msg: dict):
         """Accept a task submitted directly via the AXL encrypted overlay (no debug HTTP needed)."""
