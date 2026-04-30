@@ -10,24 +10,36 @@ This is impossible with a centralized broker. It is an emergent property of P2P 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│  Layer 4: Demo — distributed document query  │
-├─────────────────────────────────────────────┤
-│  Layer 3: Agent Runtime                      │
-│  polls ledger, claims tasks, executes        │
-├─────────────────────────────────────────────┤
-│  Layer 2: Distributed Task Ledger            │
-│  gossip-replicated, lease-based, append-only │
-├─────────────────────────────────────────────┤
-│  Layer 1: Gossip Membership (SWIM-lite)      │
-│  heartbeats, failure detection, peer gossip  │
-├─────────────────────────────────────────────┤
-│  AXL (pre-built binary)                      │
-│  POST /send  GET /recv  GET /topology        │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Layer 4: Demo — distributed document query           │
+├──────────────────────────────────────────────────────┤
+│  Layer 3: Agent Runtime                               │
+│  polls ledger, claims tasks, executes                 │
+├──────────────────────────────────────────────────────┤
+│  Layer 2: Distributed Task Ledger                     │
+│  gossip-replicated, lease-based, append-only          │
+│  ↳ topology-aware fanout: AXL-connected peers first   │
+├──────────────────────────────────────────────────────┤
+│  Layer 1: Gossip Membership (SWIM-lite)               │
+│  heartbeats, failure detection, peer gossip           │
+│  ↳ AXL topology is the authoritative peer registry   │
+│  ↳ AXL-corroborated failure: detects in ~5s not 10s  │
+├──────────────────────────────────────────────────────┤
+│  AXL (Gensyn Agent eXchange Layer)                    │
+│  POST /send  GET /recv  GET /topology                 │
+│  ↳ encrypted overlay (Yggdrasil + ed25519 identity)   │
+│  ↳ polled every 5s — drives peer discovery & failover │
+│  ↳ supports native P2P task_submit messages           │
+└──────────────────────────────────────────────────────┘
 ```
 
-**Failure detection:** peer silent for >10s → SUSPECTED. 2 independent gossip reports → CONFIRMED DEAD → expired leases reclaimed by survivors.
+**AXL as the authoritative peer registry.** Every 5 seconds each node polls `/topology`. New peers in the AXL overlay are immediately added to whisper membership. Peers that disappear from the AXL mesh *and* have been silent for >5s are fast-tracked to SUSPECTED — cutting failure detection time roughly in half (5s vs 10s).
+
+**Topology-aware gossip.** Both the membership and ledger layers sort gossip targets so AXL-directly-connected peers always get priority. Messages travel fewer overlay hops before reaching the full mesh.
+
+**AXL-native task submission.** Tasks can be injected directly via the AXL encrypted overlay using the `task_submit` message type (`demo/submit_p2p.py`), with no dependency on any node's debug HTTP port. AXL's ed25519 identity tags every task with the submitter's cryptographic key.
+
+**Failure detection:** AXL topology drop + >5s silence → SUSPECTED (fast path). Otherwise: peer silent for >10s → SUSPECTED. 2 independent gossip reports → CONFIRMED DEAD → expired leases reclaimed by survivors.
 
 **Lease mechanism:** 30s leases, renewed every 15s. If a node dies, renewal stops; lease expires; any survivor claims the task on its next 5s scan cycle.
 
@@ -92,10 +104,17 @@ The dashboard polls all 6 nodes every second and shows node status, task ledger,
 
 ### 5. Submit a query
 
+**Option A — via whisper debug API (classic):**
 ```bash
-cd /home/krish74/whisper-network
 .venv/bin/python -m demo.submit_task "attention" --api http://localhost:8888
 ```
+
+**Option B — via AXL P2P message (no debug HTTP needed):**
+```bash
+.venv/bin/python -m demo.submit_p2p "attention" --axl http://localhost:9002
+```
+
+`submit_p2p` reads the AXL topology, picks a peer, and sends `task_submit` messages directly through the encrypted overlay. The receiving whisper node gossips the tasks to the full mesh.
 
 Other good queries: `"gossip"`, `"neural network"`, `"alignment"`, `"transformer"`, `"consensus"`.
 
@@ -185,8 +204,9 @@ whisper/
   node.py               entry point: wires layers + debug HTTP server (:8888+n)
 
 demo/
-  submit_task.py        CLI: submit a query and wait for results
-  dashboard.py          rich live terminal UI
+  submit_task.py        CLI: submit a query via debug HTTP and wait for results
+  submit_p2p.py         CLI: submit a query via AXL P2P message (no HTTP needed)
+  dashboard.py          rich live terminal UI (shows AXL mesh stats per node)
   shards/shard-*.txt    6 AI/ML research document corpus files
 
 comparison/
@@ -203,10 +223,12 @@ run_local.sh            6-node local setup (no Docker, verified working)
 | Parameter | Value | File |
 |-----------|-------|------|
 | Heartbeat interval | 2s | `membership.py` |
-| Suspect threshold | 10s | `membership.py` |
+| Suspect threshold (whisper) | 10s | `membership.py` |
+| Suspect threshold (AXL fast-path) | 5s | `membership.py` |
 | Dead reports needed | 2 | `membership.py` |
-| Gossip fanout | 3 peers | both |
+| Gossip fanout | 3 peers (AXL-connected first) | both |
 | Gossip hops | 8 | both |
+| AXL topology sync interval | 5s | `node.py` |
 | Lease duration | 30s | `ledger.py` |
 | Lease renew threshold | 15s | `ledger.py` |
 | Agent scan interval | 5s | `runtime.py` |

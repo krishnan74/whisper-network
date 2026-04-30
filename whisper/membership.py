@@ -53,11 +53,14 @@ class MembershipLayer:
         self.our_key      = our_key
         self.on_peer_dead = on_peer_dead
 
-        self._peers:     dict[str, PeerInfo] = {}
+        self._peers:      dict[str, PeerInfo] = {}
         self._suspicions: dict[str, set]     = {}  # suspect -> set of reporters
-        self._seen_ids:  deque               = deque(maxlen=SEEN_CACHE_SIZE)
-        self._events:    deque               = deque(maxlen=200)
-        self._lock       = threading.Lock()
+        self._seen_ids:   deque              = deque(maxlen=SEEN_CACHE_SIZE)
+        self._events:     deque              = deque(maxlen=200)
+        self._lock        = threading.Lock()
+
+        # Keys currently up in the AXL overlay mesh (updated by topology sync loop)
+        self._axl_connected: set[str] = set()
 
         # Injected by node.py so heartbeats can include current tasks
         self._tasks_held_fn: Callable[[], list[str]] = lambda: []
@@ -84,6 +87,45 @@ class MembershipLayer:
 
     def set_tasks_held_fn(self, fn: Callable[[], list[str]]):
         self._tasks_held_fn = fn
+
+    def get_axl_connected(self) -> set[str]:
+        with self._lock:
+            return set(self._axl_connected)
+
+    def axl_sync(self, connected_keys: set[str]):
+        """
+        Called by the node's topology-sync loop every 5s.
+        - Adds newly appeared AXL peers to membership.
+        - Fast-tracks peers absent from the AXL mesh AND silent too long to SUSPECTED,
+          cutting failure detection from SUSPECT_AFTER down to SUSPECT_AFTER/2.
+        """
+        now = time.time()
+        fast_suspect_after = SUSPECT_AFTER / 2
+        newly_suspected: list[str] = []
+
+        with self._lock:
+            self._axl_connected = set(connected_keys)
+
+            for key in connected_keys:
+                if key != self.our_key and key not in self._peers:
+                    self._peers[key] = PeerInfo(peer_key=key)
+                    self._log(f"discovered peer via AXL topology: {key[:8]}")
+
+            for key, peer in list(self._peers.items()):
+                if peer.status == PeerStatus.DEAD:
+                    continue
+                if (peer.status == PeerStatus.ALIVE
+                        and key not in connected_keys
+                        and (now - peer.last_seen) > fast_suspect_after):
+                    peer.status = PeerStatus.SUSPECTED
+                    newly_suspected.append(key)
+                    self._log(
+                        f"node-{key[:8]} SUSPECTED "
+                        f"(dropped from AXL mesh + {now - peer.last_seen:.0f}s silence)"
+                    )
+
+        for key in newly_suspected:
+            self._gossip_suspicion(key)
 
     def get_events(self, n: int = 20) -> list[str]:
         return list(self._events)[:n]
@@ -172,7 +214,13 @@ class MembershipLayer:
     def _fanout(self, msg: dict):
         with self._lock:
             alive = [k for k, p in self._peers.items() if p.status != PeerStatus.DEAD]
-        targets = random.sample(alive, min(len(alive), GOSSIP_FANOUT))
+            axl   = self._axl_connected
+        # Prefer AXL-directly-connected peers (lower latency); randomise within each group
+        axl_alive   = [k for k in alive if k in axl]
+        other_alive = [k for k in alive if k not in axl]
+        random.shuffle(axl_alive)
+        random.shuffle(other_alive)
+        targets = (axl_alive + other_alive)[:GOSSIP_FANOUT]
         for peer_key in targets:
             self.transport.send(peer_key, msg)
 

@@ -49,18 +49,23 @@ def node_table(states: list[Optional[dict]], node_names: list[str]) -> Table:
     t.add_column("Key (short)",  style="dim")
     t.add_column("Shard",        justify="center")
     t.add_column("Status",       no_wrap=True)
+    t.add_column("AXL mesh",     justify="center", style="magenta")
     t.add_column("Tasks held",   style="yellow")
     t.add_column("Known peers")
 
     for name, state in zip(node_names, states):
         if state is None:
             t.add_row(name, "?", "?",
-                      Text("— OFFLINE", style="dim"), "—", "—")
+                      Text("— OFFLINE", style="dim"), "—", "—", "—")
             continue
 
-        key_short = state.get("key_short", "?")
-        shard_id  = str(state.get("shard_id", "?"))
-        peers     = state.get("peers", {})
+        key_short  = state.get("key_short", "?")
+        shard_id   = str(state.get("shard_id", "?"))
+        peers      = state.get("peers", {})
+        axl        = state.get("axl_mesh", {})
+        axl_up     = axl.get("up_peers", "?")
+        axl_total  = axl.get("total_peers", "?")
+        axl_str    = f"{axl_up}/{axl_total} up"
 
         my_tasks = [
             tid[:10]
@@ -69,8 +74,8 @@ def node_table(states: list[Optional[dict]], node_names: list[str]) -> Table:
             and task.get("status") == "in_progress"
         ]
 
-        alive = sum(1 for p in peers.values() if p["status"] == "alive")
-        dead  = sum(1 for p in peers.values() if p["status"] == "dead")
+        alive    = sum(1 for p in peers.values() if p["status"] == "alive")
+        dead     = sum(1 for p in peers.values() if p["status"] == "dead")
         peer_str = f"{alive} alive" + (f", {dead} dead" if dead else "")
 
         t.add_row(
@@ -78,6 +83,7 @@ def node_table(states: list[Optional[dict]], node_names: list[str]) -> Table:
             key_short,
             shard_id,
             Text("● ALIVE", style="bold green"),
+            axl_str,
             ", ".join(my_tasks) if my_tasks else "—",
             peer_str,
         )

@@ -61,3 +61,19 @@ class AXLTransport:
             for p in topo.get("peers", [])
             if p.get("up") and p.get("public_key")
         ]
+
+    def axl_connected_keys(self) -> set[str]:
+        """Keys of peers currently up (directly connected) in the AXL overlay mesh."""
+        topo = self.topology()
+        return {
+            p["public_key"]
+            for p in topo.get("peers", [])
+            if p.get("up") and p.get("public_key")
+        }
+
+    def axl_mesh_stats(self) -> dict:
+        """Summary of AXL overlay mesh connectivity."""
+        topo  = self.topology()
+        peers = topo.get("peers", [])
+        up    = sum(1 for p in peers if p.get("up"))
+        return {"total_peers": len(peers), "up_peers": up}

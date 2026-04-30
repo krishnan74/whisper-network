@@ -87,6 +87,8 @@ class WhisperNode:
         self.our_key     = self._wait_for_axl()
         logger.info("our key: %s...", self.our_key[:16])
 
+        self._axl_mesh_stats: dict = {"total_peers": 0, "up_peers": 0}
+
         self.membership  = MembershipLayer(
             transport    = self.transport,
             our_key      = self.our_key,
@@ -99,6 +101,7 @@ class WhisperNode:
             ledger_file  = ledger_file,
         )
         self.ledger.set_peers_fn(self.membership.get_alive_peers)
+        self.ledger.set_axl_connected_fn(self.membership.get_axl_connected)
 
         self.runtime     = AgentRuntime(
             ledger    = self.ledger,
@@ -133,6 +136,7 @@ class WhisperNode:
         self.runtime.start()
         self._start_debug_server()
         self._start_recv_loop()
+        threading.Thread(target=self._axl_sync_loop, daemon=True, name="axl-sync").start()
         logger.info(
             "whisper node running (shard-%d, debug :%d)",
             self.runtime.shard_id, self.debug_port,
@@ -157,6 +161,8 @@ class WhisperNode:
                         self.membership.handle_message(from_peer, msg)
                     elif mtype == "ledger_update":
                         self.ledger.handle_ledger_update(from_peer, msg)
+                    elif mtype == "task_submit":
+                        self._handle_p2p_task_submit(msg)
                     else:
                         logger.debug("unknown message type: %s", mtype)
                 except Exception as e:
@@ -164,6 +170,30 @@ class WhisperNode:
                     time.sleep(0.1)
 
         threading.Thread(target=loop, daemon=True, name="recv").start()
+
+    def _axl_sync_loop(self):
+        """Poll AXL /topology every 5s — keeps peer membership in sync with the overlay mesh."""
+        while True:
+            try:
+                connected = self.transport.axl_connected_keys()
+                self.membership.axl_sync(connected)
+                self._axl_mesh_stats = self.transport.axl_mesh_stats()
+            except Exception as e:
+                logger.debug("AXL topology sync error: %s", e)
+            time.sleep(5)
+
+    def _handle_p2p_task_submit(self, msg: dict):
+        """Accept a task submitted directly via the AXL encrypted overlay (no debug HTTP needed)."""
+        try:
+            task_id  = msg["task_id"]
+            payload  = msg["payload"]
+            shard_id = int(msg["shard_id"])
+            sender   = (msg.get("from") or "?")[:8]
+            self.ledger.submit_task(task_id, payload, shard_id)
+            logger.info("P2P task %s (shard-%d) received via AXL from %s",
+                        task_id[:12], shard_id, sender)
+        except Exception as e:
+            logger.warning("malformed task_submit message: %s", e)
 
     def _start_debug_server(self):
         _Handler.node = self
@@ -211,6 +241,7 @@ class WhisperNode:
             "our_key":   self.our_key,
             "key_short": self.our_key[:8],
             "shard_id":  self.runtime.shard_id,
+            "axl_mesh":  self._axl_mesh_stats,
             "peers":     peers,
             "tasks":     tasks,
             "events":    events,

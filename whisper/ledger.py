@@ -70,6 +70,8 @@ class TaskLedger:
 
         # Injected by node so we can gossip to alive peers
         self._peers_fn: Callable[[], list[str]] = lambda: []
+        # Injected by node: returns keys currently up in the AXL overlay mesh
+        self._axl_connected_fn: Callable[[], set[str]] = lambda: set()
 
         self._load()
 
@@ -77,6 +79,9 @@ class TaskLedger:
 
     def set_peers_fn(self, fn: Callable[[], list[str]]):
         self._peers_fn = fn
+
+    def set_axl_connected_fn(self, fn: Callable[[], set[str]]):
+        self._axl_connected_fn = fn
 
     def submit_task(self, task_id: str, payload: str, shard_id: int) -> Task:
         task = Task(
@@ -262,8 +267,14 @@ class TaskLedger:
         self._fanout_raw(msg)
 
     def _fanout_raw(self, msg: dict):
-        peers   = self._peers_fn()
-        targets = random.sample(peers, min(len(peers), GOSSIP_FANOUT))
+        peers = self._peers_fn()
+        axl   = self._axl_connected_fn()
+        # Prefer AXL-directly-connected peers; randomise within each group
+        axl_peers   = [k for k in peers if k in axl]
+        other_peers = [k for k in peers if k not in axl]
+        random.shuffle(axl_peers)
+        random.shuffle(other_peers)
+        targets = (axl_peers + other_peers)[:GOSSIP_FANOUT]
         for peer_key in targets:
             self.transport.send(peer_key, msg)
 
