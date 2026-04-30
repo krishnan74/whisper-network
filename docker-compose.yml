@@ -1,22 +1,32 @@
-version: "3.9"
-
-# ── Whisper Network — 6-node local demo ──────────────────────────────────────
+# Whisper Network — 6-node Docker Compose demo
 #
-# All containers share a Docker bridge network.
-# node-1 is the Yggdrasil bootstrap (Listen: tls://0.0.0.0:9001).
-# Nodes 2-6 peer to node-1 and discover each other via gossip.
+# Each container runs one AXL process + one whisper node.
+# node-1 is the Yggdrasil bootstrap; nodes 2-6 peer to it via Docker hostname.
+# The AXL binary is baked into the image (Dockerfile COPY axl/node /axl/node).
+# Per-node configs come from axl-configs/ (hostname-based peers, not localhost).
 #
-# Debug APIs are exposed on host ports 8888-8893 for the dashboard.
-# Run the dashboard from the host:
-#   python -m demo.dashboard
+# Usage:
+#   docker compose up --build          # start all 6 nodes
+#   docker compose up --build -d       # detached
+#   python -m demo.dashboard           # live terminal dashboard (from host)
+#   python -m demo.submit_task "attention" --api http://localhost:8888
 #
-# Kill nodes to demo fault tolerance:
+# Kill 3 nodes to demo fault tolerance:
 #   docker compose kill node-4 node-5 node-6
+#
+# Partition demo:
+#   docker compose pause node-4 node-5 node-6   # freeze (SIGSTOP)
+#   docker compose unpause node-4 node-5 node-6 # heal
+#
+# Comparison demo (Redis):
+#   docker compose --profile comparison up redis
+#   python -m comparison.redis_broker --query "gossip"
 
 networks:
   whisper:
     driver: bridge
 
+# ── Shared defaults ───────────────────────────────────────────────────────────
 x-whisper-common: &whisper-common
   build:
     context: .
@@ -24,27 +34,27 @@ x-whisper-common: &whisper-common
   networks: [whisper]
   restart: "no"
   volumes:
-    - ./demo/shards:/shards:ro
-    - ./axl:/config:ro
+    - ./demo/shards:/shards:ro      # document corpus (read-only)
+    - ./axl-configs:/config:ro      # per-node AXL configs (hostname-based peers)
 
+# ── Node definitions ──────────────────────────────────────────────────────────
 services:
   node-1:
     <<: *whisper-common
     container_name: whisper-node-1
     hostname: node-1
     environment:
-      NODE_NUM:   "1"
-      SHARD_ID:   "1"
-      DEBUG_PORT: "8888"
-      LOG_LEVEL:  "INFO"
+      NODE_NUM:  "1"
+      SHARD_ID:  "1"
+      LOG_LEVEL: "INFO"
     ports:
-      - "9001:9001"   # Yggdrasil listener (other nodes peer to this)
-      - "8888:8888"   # whisper debug API
+      - "9001:9001"   # Yggdrasil bootstrap — nodes 2-6 peer here
+      - "8888:8888"   # whisper debug API (dashboard + submit)
     volumes:
       - ./demo/shards:/shards:ro
-      - ./axl:/config:ro
-      - whisper-keys-1:/keys
-      - whisper-data-1:/data
+      - ./axl-configs:/config:ro
+      - whisper-keys-1:/keys        # persistent ed25519 identity
+      - whisper-data-1:/data        # persistent ledger
 
   node-2:
     <<: *whisper-common
@@ -52,15 +62,14 @@ services:
     hostname: node-2
     depends_on: [node-1]
     environment:
-      NODE_NUM:   "2"
-      SHARD_ID:   "2"
-      DEBUG_PORT: "8888"
-      LOG_LEVEL:  "INFO"
+      NODE_NUM:  "2"
+      SHARD_ID:  "2"
+      LOG_LEVEL: "INFO"
     ports:
       - "8889:8888"
     volumes:
       - ./demo/shards:/shards:ro
-      - ./axl:/config:ro
+      - ./axl-configs:/config:ro
       - whisper-keys-2:/keys
       - whisper-data-2:/data
 
@@ -70,15 +79,14 @@ services:
     hostname: node-3
     depends_on: [node-1]
     environment:
-      NODE_NUM:   "3"
-      SHARD_ID:   "3"
-      DEBUG_PORT: "8888"
-      LOG_LEVEL:  "INFO"
+      NODE_NUM:  "3"
+      SHARD_ID:  "3"
+      LOG_LEVEL: "INFO"
     ports:
       - "8890:8888"
     volumes:
       - ./demo/shards:/shards:ro
-      - ./axl:/config:ro
+      - ./axl-configs:/config:ro
       - whisper-keys-3:/keys
       - whisper-data-3:/data
 
@@ -88,15 +96,14 @@ services:
     hostname: node-4
     depends_on: [node-1]
     environment:
-      NODE_NUM:   "4"
-      SHARD_ID:   "4"
-      DEBUG_PORT: "8888"
-      LOG_LEVEL:  "INFO"
+      NODE_NUM:  "4"
+      SHARD_ID:  "4"
+      LOG_LEVEL: "INFO"
     ports:
       - "8891:8888"
     volumes:
       - ./demo/shards:/shards:ro
-      - ./axl:/config:ro
+      - ./axl-configs:/config:ro
       - whisper-keys-4:/keys
       - whisper-data-4:/data
 
@@ -106,15 +113,14 @@ services:
     hostname: node-5
     depends_on: [node-1]
     environment:
-      NODE_NUM:   "5"
-      SHARD_ID:   "5"
-      DEBUG_PORT: "8888"
-      LOG_LEVEL:  "INFO"
+      NODE_NUM:  "5"
+      SHARD_ID:  "5"
+      LOG_LEVEL: "INFO"
     ports:
       - "8892:8888"
     volumes:
       - ./demo/shards:/shards:ro
-      - ./axl:/config:ro
+      - ./axl-configs:/config:ro
       - whisper-keys-5:/keys
       - whisper-data-5:/data
 
@@ -124,15 +130,14 @@ services:
     hostname: node-6
     depends_on: [node-1]
     environment:
-      NODE_NUM:   "6"
-      SHARD_ID:   "6"
-      DEBUG_PORT: "8888"
-      LOG_LEVEL:  "INFO"
+      NODE_NUM:  "6"
+      SHARD_ID:  "6"
+      LOG_LEVEL: "INFO"
     ports:
       - "8893:8888"
     volumes:
       - ./demo/shards:/shards:ro
-      - ./axl:/config:ro
+      - ./axl-configs:/config:ro
       - whisper-keys-6:/keys
       - whisper-data-6:/data
 
@@ -145,6 +150,7 @@ services:
       - "6379:6379"
     profiles: ["comparison"]   # only started with: docker compose --profile comparison up
 
+# ── Persistent volumes ────────────────────────────────────────────────────────
 volumes:
   whisper-keys-1:
   whisper-keys-2:

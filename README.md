@@ -55,6 +55,32 @@ This is impossible with a centralized broker. It is an emergent property of P2P 
 
 ---
 
+## Demo: Docker Compose (Easiest)
+
+Requires Docker with the Compose plugin. The AXL binary must be at `axl/node` first.
+
+```bash
+# One command — builds images, starts 6 nodes, streams logs
+docker compose up --build
+
+# Submit a query (separate terminal)
+python -m demo.submit_task "attention" --api http://localhost:8888
+
+# Kill 3 nodes mid-flight
+docker compose kill node-4 node-5 node-6
+
+# Partition demo (pause/resume instead of kill)
+docker compose pause node-4 node-5 node-6
+docker compose unpause node-4 node-5 node-6
+```
+
+Node debug APIs are exposed on host ports 8888–8893. The dashboard works from the host:
+```bash
+python -m demo.dashboard
+```
+
+---
+
 ## Demo: Local (No Docker)
 
 This is the verified path. All 6 AXL + whisper nodes run on one machine.
@@ -232,11 +258,15 @@ whisper/
   node.py               entry point: wires layers + debug HTTP server (:8888+n)
 
 demo/
+  run_demo.sh           automated end-to-end demo (starts network, kills 3, shows recovery)
   submit_task.py        CLI: submit a query via debug HTTP and wait for results
   submit_p2p.py         CLI: submit a query via AXL P2P message (no HTTP needed)
   partition_demo.sh     scripted partition + heal demo (SIGSTOP/SIGCONT group B)
-  dashboard.py          rich live terminal UI (shows AXL mesh stats per node)
+  dashboard.py          rich live terminal UI (AXL mesh stats, metrics, event log)
   shards/shard-*.txt    6 AI/ML research document corpus files
+
+axl-configs/
+  node-config-*.json    Docker-appropriate AXL configs (hostname-based peers)
 
 comparison/
   redis_broker.py       centralized equivalent — freezes when Redis dies
