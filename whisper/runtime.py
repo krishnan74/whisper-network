@@ -24,15 +24,17 @@ class AgentRuntime:
     def __init__(
         self,
         ledger,
-        our_key: str,
-        shard_id: int,
-        shard_dir: str,
+        our_key:    str,
+        shard_id:   int,
+        shard_dir:  str,
+        membership  = None,
         num_shards: int = 6,
     ):
-        self.ledger    = ledger
-        self.our_key   = our_key
-        self.shard_id  = shard_id   # this node's "home" shard (informational only)
-        self.shard_dir = shard_dir
+        self.ledger     = ledger
+        self.our_key    = our_key
+        self.shard_id   = shard_id   # this node's home shard
+        self.shard_dir  = shard_dir
+        self.membership = membership  # used for shard-affinity routing
         self.num_shards = num_shards
 
         # Load ALL shards — any surviving node can execute any task
@@ -77,10 +79,21 @@ class AgentRuntime:
         for task in self.ledger.get_tasks_needing_renewal():
             self.ledger.renew_lease(task.task_id)
 
-        # 2. Find any claimable tasks (any shard — survivors pick up dead nodes' work)
+        # 2. Find claimable tasks with shard-affinity ordering:
+        #    - Priority A: tasks for our own shard (we are the home node)
+        #    - Priority B: tasks whose home node is dead/unknown (survivor takeover)
+        #    Skip tasks whose home node is alive — let it claim its own work.
         claimable = self.ledger.get_claimable_tasks()
 
-        for task in claimable:
+        mine     = [t for t in claimable if t.shard_id == self.shard_id]
+        orphaned = [
+            t for t in claimable
+            if t.shard_id != self.shard_id
+            and (self.membership is None
+                 or self.membership.get_peer_for_shard(t.shard_id) is None)
+        ]
+
+        for task in mine + orphaned:
             if not self.ledger.claim_task(task.task_id):
                 continue
 
@@ -95,7 +108,11 @@ class AgentRuntime:
                 logger.info("lost lease race for %s, skipping", task.task_id[:12])
                 continue
 
-            logger.info("executing task %s (shard-%d)", task.task_id[:12], task.shard_id)
+            origin = "home" if task.shard_id == self.shard_id else "survivor"
+            logger.info(
+                "executing task %s (shard-%d) [%s]",
+                task.task_id[:12], task.shard_id, origin,
+            )
             result = self.execute(task.payload, task.shard_id)
             self.ledger.complete_task(task.task_id, result)
             break  # process one task per scan cycle

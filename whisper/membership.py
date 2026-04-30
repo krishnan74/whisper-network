@@ -37,20 +37,23 @@ class PeerStatus(str, Enum):
 @dataclass
 class PeerInfo:
     peer_key:   str
-    status:     PeerStatus = PeerStatus.ALIVE
-    last_seen:  float      = field(default_factory=time.time)
-    tasks_held: list       = field(default_factory=list)
+    status:     PeerStatus     = PeerStatus.ALIVE
+    last_seen:  float          = field(default_factory=time.time)
+    tasks_held: list           = field(default_factory=list)
+    shard_id:   Optional[int]  = None  # home shard, learned from heartbeats
 
 
 class MembershipLayer:
     def __init__(
         self,
         transport,
-        our_key: str,
+        our_key:      str,
+        our_shard_id: int = 0,
         on_peer_dead: Optional[Callable[[str], None]] = None,
     ):
         self.transport    = transport
         self.our_key      = our_key
+        self.our_shard_id = our_shard_id
         self.on_peer_dead = on_peer_dead
 
         self._peers:      dict[str, PeerInfo] = {}
@@ -87,6 +90,14 @@ class MembershipLayer:
 
     def set_tasks_held_fn(self, fn: Callable[[], list[str]]):
         self._tasks_held_fn = fn
+
+    def get_peer_for_shard(self, shard_id: int) -> Optional[str]:
+        """Return the key of the alive peer that owns shard_id, or None if dead/unknown."""
+        with self._lock:
+            for key, peer in self._peers.items():
+                if peer.shard_id == shard_id and peer.status == PeerStatus.ALIVE:
+                    return key
+        return None
 
     def get_axl_connected(self) -> set[str]:
         with self._lock:
@@ -174,6 +185,7 @@ class MembershipLayer:
             "msg_id":      str(uuid.uuid4()),
             "from":        self.our_key,
             "timestamp":   time.time(),
+            "shard_id":    self.our_shard_id,
             "tasks_held":  self._tasks_held_fn(),
             "known_peers": known,
             "hops":        GOSSIP_HOPS,
@@ -242,6 +254,8 @@ class MembershipLayer:
             peer = self._peers[sender]
             peer.last_seen  = time.time()
             peer.tasks_held = msg.get("tasks_held", [])
+            if msg.get("shard_id") is not None:
+                peer.shard_id = int(msg["shard_id"])
 
             if peer.status == PeerStatus.SUSPECTED:
                 peer.status = PeerStatus.ALIVE

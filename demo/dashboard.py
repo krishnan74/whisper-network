@@ -47,7 +47,7 @@ def node_table(states: list[Optional[dict]], node_names: list[str]) -> Table:
     t = Table(title="Node Status", box=box.SIMPLE_HEAD, expand=True, show_lines=False)
     t.add_column("Node",         style="bold cyan", no_wrap=True)
     t.add_column("Key (short)",  style="dim")
-    t.add_column("Shard",        justify="center")
+    t.add_column("Home shard",   justify="center")
     t.add_column("Status",       no_wrap=True)
     t.add_column("AXL mesh",     justify="center", style="magenta")
     t.add_column("Tasks held",   style="yellow")
@@ -99,23 +99,26 @@ def node_table(states: list[Optional[dict]], node_names: list[str]) -> Table:
 def peer_status_table(states: list[Optional[dict]], node_names: list[str]) -> Table:
     """Per-node view of what each node thinks about peers (failure detection)."""
     t = Table(title="Peer View (from node-1)", box=box.SIMPLE_HEAD, expand=True)
-    t.add_column("Peer",   style="bold")
-    t.add_column("Status", no_wrap=True)
+    t.add_column("Peer",        style="bold")
+    t.add_column("Home shard",  justify="center")
+    t.add_column("Status",      no_wrap=True)
     t.add_column("Last heartbeat")
 
     # Use state from node-1 (index 0) as the representative view
     representative = next((s for s in states if s), None)
     if not representative:
-        t.add_row("(no data)", "—", "—")
+        t.add_row("(no data)", "—", "—", "—")
         return t
 
     for short_key, info in representative.get("peers", {}).items():
-        status  = info.get("status")
+        status       = info.get("status")
         label, style = STATUS_STYLE.get(status, STATUS_STYLE[None])
-        last_seen = info.get("last_seen", 0)
-        ago = time.time() - last_seen if last_seen else 0
+        last_seen    = info.get("last_seen", 0)
+        ago          = time.time() - last_seen if last_seen else 0
+        shard        = str(info.get("shard_id")) if info.get("shard_id") is not None else "?"
         t.add_row(
             short_key,
+            shard,
             Text(label, style=style),
             f"{ago:.1f}s ago" if last_seen else "—",
         )

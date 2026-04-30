@@ -93,6 +93,7 @@ class WhisperNode:
         self.membership  = MembershipLayer(
             transport    = self.transport,
             our_key      = self.our_key,
+            our_shard_id = shard_id,
             on_peer_dead = self._on_peer_dead,
         )
 
@@ -105,10 +106,11 @@ class WhisperNode:
         self.ledger.set_axl_connected_fn(self.membership.get_axl_connected)
 
         self.runtime     = AgentRuntime(
-            ledger    = self.ledger,
-            our_key   = self.our_key,
-            shard_id  = shard_id,
-            shard_dir = os.path.dirname(os.path.abspath(shard_file)),
+            ledger     = self.ledger,
+            our_key    = self.our_key,
+            shard_id   = shard_id,
+            shard_dir  = os.path.dirname(os.path.abspath(shard_file)),
+            membership = self.membership,
         )
 
         self.membership.set_tasks_held_fn(self.ledger.get_my_task_ids)
@@ -229,6 +231,7 @@ class WhisperNode:
                 "status":     info.status.value,
                 "last_seen":  info.last_seen,
                 "tasks_held": info.tasks_held,
+                "shard_id":   info.shard_id,
             }
 
         now   = time.time()
