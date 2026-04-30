@@ -253,14 +253,15 @@ class WhisperNode:
         events   = sorted(set(m_events + l_events), reverse=True)[:20]
 
         return {
-            "our_key":        self.our_key,
-            "key_short":      self.our_key[:8],
-            "shard_id":       self.runtime.shard_id,
-            "axl_mesh":       self._axl_mesh_stats,
+            "our_key":         self.our_key,
+            "key_short":       self.our_key[:8],
+            "shard_id":        self.runtime.shard_id,
+            "axl_mesh":        self._axl_mesh_stats,
             "recovered_tasks": self._recovered_task_count,
-            "peers":          peers,
-            "tasks":          tasks,
-            "events":         events,
+            "metrics":         self.ledger.get_metrics(),
+            "peers":           peers,
+            "tasks":           tasks,
+            "events":          events,
         }
 
 

@@ -180,6 +180,36 @@ def task_table(states: list[Optional[dict]]) -> Table:
     return t
 
 
+def metrics_panel(states: list[Optional[dict]]) -> Panel:
+    # Aggregate metrics across all nodes (use max completed count as ground truth)
+    best: dict = {}
+    for state in states:
+        if not state:
+            continue
+        m = state.get("metrics", {})
+        if m.get("completed", 0) >= best.get("completed", 0):
+            best = m
+
+    if not best:
+        return Panel("(no data)", title="[bold]Metrics[/bold]", border_style="green")
+
+    avg  = best.get("avg_completion_s")
+    fast = best.get("fastest_completion_s")
+    slow = best.get("slowest_completion_s")
+
+    lines = [
+        f"Tasks   : {best.get('completed',0)} completed / "
+        f"{best.get('in_progress',0)} in-progress / "
+        f"{best.get('pending',0)} pending  "
+        f"(total {best.get('total',0)})",
+        f"Avg completion : {avg:.2f}s" if avg is not None else "Avg completion : —",
+        f"Fastest        : {fast:.2f}s" if fast is not None else "Fastest        : —",
+        f"Slowest        : {slow:.2f}s" if slow is not None else "Slowest        : —",
+    ]
+    return Panel("\n".join(lines), title="[bold]Metrics[/bold]",
+                 border_style="green", padding=(0, 1))
+
+
 def events_panel(states: list[Optional[dict]]) -> Panel:
     all_events: set[str] = set()
     for state in states:
@@ -198,6 +228,8 @@ def build_renderable(states, node_names):
         peer_status_table(states, node_names),
         "",
         task_table(states),
+        "",
+        metrics_panel(states),
         "",
         events_panel(states),
     )

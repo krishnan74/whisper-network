@@ -33,15 +33,16 @@ SEEN_CACHE_SIZE = 1000
 
 @dataclass
 class Task:
-    task_id:      str
-    payload:      str
-    shard_id:     int
-    status:       str            # "pending" | "in_progress" | "completed"
-    leased_by:    Optional[str]
+    task_id:       str
+    payload:       str
+    shard_id:      int
+    status:        str            # "pending" | "in_progress" | "completed"
+    leased_by:     Optional[str]
     lease_expires: float
-    result:       Optional[str]
-    created_at:   float
-    version:      int = 0
+    result:        Optional[str]
+    created_at:    float
+    version:       int            = 0
+    completed_at:  Optional[float] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -181,9 +182,10 @@ class TaskLedger:
             task = self._tasks.get(task_id)
             if not task or task.leased_by != self.our_key:
                 return False
-            task.status  = "completed"
-            task.result  = result
-            task.version += 1
+            task.status       = "completed"
+            task.result       = result
+            task.completed_at = time.time()
+            task.version     += 1
             self._persist()
 
         self._gossip_task(task)
@@ -225,6 +227,27 @@ class TaskLedger:
     def get_all_tasks(self) -> list[Task]:
         with self._lock:
             return list(self._tasks.values())
+
+    def get_metrics(self) -> dict:
+        """Aggregate completion-time stats across all completed tasks."""
+        with self._lock:
+            tasks = list(self._tasks.values())
+
+        total     = len(tasks)
+        completed = [t for t in tasks if t.status == "completed" and t.completed_at]
+        pending   = sum(1 for t in tasks if t.status == "pending")
+        in_prog   = sum(1 for t in tasks if t.status == "in_progress")
+
+        times = [t.completed_at - t.created_at for t in completed if t.completed_at]
+        return {
+            "total":       total,
+            "completed":   len(completed),
+            "in_progress": in_prog,
+            "pending":     pending,
+            "avg_completion_s":     round(sum(times) / len(times), 2) if times else None,
+            "fastest_completion_s": round(min(times), 2) if times else None,
+            "slowest_completion_s": round(max(times), 2) if times else None,
+        }
 
     def get_events(self, n: int = 20) -> list[str]:
         return list(self._events)[:n]
