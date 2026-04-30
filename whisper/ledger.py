@@ -83,6 +83,43 @@ class TaskLedger:
     def set_axl_connected_fn(self, fn: Callable[[], set[str]]):
         self._axl_connected_fn = fn
 
+    def recover_identity(self) -> int:
+        """
+        Called once at startup after AXL is ready.
+
+        Scans the on-disk ledger for tasks we owned before a crash
+        (leased_by == our_key, status == in_progress). Refreshes their
+        lease expiry so they stay ours instead of being reclaimed by peers
+        who saw the lease expire while we were down.
+
+        Returns the number of tasks recovered.
+        """
+        now      = time.time()
+        recovered: list[Task] = []
+
+        with self._lock:
+            for task in self._tasks.values():
+                if task.leased_by == self.our_key and task.status == "in_progress":
+                    task.lease_expires = now + LEASE_DURATION
+                    task.version      += 1
+                    recovered.append(task)
+            if recovered:
+                self._persist()
+
+        for task in recovered:
+            self._gossip_task(task)
+            self._log(
+                f"recovered task {task.task_id[:12]} shard-{task.shard_id} "
+                f"(node restarted with same AXL identity)"
+            )
+
+        if recovered:
+            logger.info(
+                "identity recovery: re-adopted %d in-progress task(s) from previous run",
+                len(recovered),
+            )
+        return len(recovered)
+
     def submit_task(self, task_id: str, payload: str, shard_id: int) -> Task:
         task = Task(
             task_id      = task_id,

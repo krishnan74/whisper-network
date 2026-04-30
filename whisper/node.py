@@ -87,7 +87,8 @@ class WhisperNode:
         self.our_key     = self._wait_for_axl()
         logger.info("our key: %s...", self.our_key[:16])
 
-        self._axl_mesh_stats: dict = {"total_peers": 0, "up_peers": 0}
+        self._axl_mesh_stats: dict    = {"total_peers": 0, "up_peers": 0}
+        self._recovered_task_count: int = 0
 
         self.membership  = MembershipLayer(
             transport    = self.transport,
@@ -131,6 +132,17 @@ class WhisperNode:
             logger.info("seeded %d peers from /topology", len(self.transport.known_peer_keys()))
         except Exception as e:
             logger.warning("could not seed peers from topology: %s", e)
+
+        # Recover any tasks this node owned before a crash.
+        # Must run after AXL is ready (so our_key is confirmed) but before the
+        # runtime loop starts (so we don't race against our own recovery gossip).
+        self._recovered_task_count = self.ledger.recover_identity()
+        if self._recovered_task_count:
+            logger.info(
+                "identity recovery: re-adopted %d task(s) — "
+                "peers will see updated leases within one gossip round",
+                self._recovered_task_count,
+            )
 
         self.membership.start()
         self.runtime.start()
@@ -238,13 +250,14 @@ class WhisperNode:
         events   = sorted(set(m_events + l_events), reverse=True)[:20]
 
         return {
-            "our_key":   self.our_key,
-            "key_short": self.our_key[:8],
-            "shard_id":  self.runtime.shard_id,
-            "axl_mesh":  self._axl_mesh_stats,
-            "peers":     peers,
-            "tasks":     tasks,
-            "events":    events,
+            "our_key":        self.our_key,
+            "key_short":      self.our_key[:8],
+            "shard_id":       self.runtime.shard_id,
+            "axl_mesh":       self._axl_mesh_stats,
+            "recovered_tasks": self._recovered_task_count,
+            "peers":          peers,
+            "tasks":          tasks,
+            "events":         events,
         }
 
 

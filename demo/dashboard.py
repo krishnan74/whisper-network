@@ -78,8 +78,13 @@ def node_table(states: list[Optional[dict]], node_names: list[str]) -> Table:
         dead     = sum(1 for p in peers.values() if p["status"] == "dead")
         peer_str = f"{alive} alive" + (f", {dead} dead" if dead else "")
 
+        recovered = state.get("recovered_tasks", 0)
+        name_cell = Text(name)
+        if recovered:
+            name_cell.append(f" [↺{recovered}]", style="bold cyan")
+
         t.add_row(
-            name,
+            name_cell,
             key_short,
             shard_id,
             Text("● ALIVE", style="bold green"),
