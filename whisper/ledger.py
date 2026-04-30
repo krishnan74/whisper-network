@@ -45,6 +45,7 @@ class Task:
     created_at:    float
     version:       int            = 0
     completed_at:  Optional[float] = None
+    submitter_key: Optional[str]  = None  # AXL key to notify on completion
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -157,17 +158,19 @@ class TaskLedger:
             logger.info("graceful shutdown: released %d lease(s)", len(released))
         return len(released)
 
-    def submit_task(self, task_id: str, payload: str, shard_id: int) -> Task:
+    def submit_task(self, task_id: str, payload: str, shard_id: int,
+                    submitter_key: Optional[str] = None) -> Task:
         task = Task(
-            task_id      = task_id,
-            payload      = payload,
-            shard_id     = shard_id,
-            status       = "pending",
-            leased_by    = None,
+            task_id       = task_id,
+            payload       = payload,
+            shard_id      = shard_id,
+            status        = "pending",
+            leased_by     = None,
             lease_expires = 0.0,
-            result       = None,
-            created_at   = time.time(),
-            version      = 1,
+            result        = None,
+            created_at    = time.time(),
+            version       = 1,
+            submitter_key = submitter_key,
         )
         with self._lock:
             self._tasks[task_id] = task
@@ -229,7 +232,30 @@ class TaskLedger:
 
         self._gossip_task(task)
         self._log(f"completed task {task_id[:12]}: {result[:60]}")
+        self._notify_submitter(task)
         return True
+
+    def _notify_submitter(self, task: Task):
+        """Send a task_result push notification directly to the original submitter via AXL."""
+        if not task.submitter_key or task.submitter_key == self.our_key:
+            return
+        notification = {
+            "type":      "task_result",
+            "msg_id":    str(uuid.uuid4()),
+            "from":      self.our_key,
+            "task_id":   task.task_id,
+            "shard_id":  task.shard_id,
+            "result":    task.result,
+            "completed_at": task.completed_at,
+        }
+        try:
+            self.transport.send(task.submitter_key, notification)
+            logger.info(
+                "pushed result for task %s to submitter %s...",
+                task.task_id[:12], task.submitter_key[:8],
+            )
+        except Exception as e:
+            logger.debug("could not push result to submitter: %s", e)
 
     def get_claimable_tasks(self) -> list[Task]:
         """Tasks that are pending or whose lease has expired (and aren't ours)."""

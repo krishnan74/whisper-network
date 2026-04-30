@@ -4,14 +4,13 @@ Submit a task via the AXL encrypted overlay mesh (no debug HTTP required).
 
 Instead of posting to a whisper node's /submit debug endpoint, this script
 reads the AXL topology to find a live peer and injects tasks directly as
-'task_submit' AXL messages. The receiving node gossips them to the full mesh.
-
-This demonstrates AXL as a first-class application bus — not just a transport
-that whisper happens to run on top of.
+'task_submit' AXL messages.  When each task completes the executing node
+sends a 'task_result' push notification back to us via AXL — demonstrating
+AXL as a true bidirectional, encrypted application bus.
 
 Usage:
     python -m demo.submit_p2p "neural network"
-    python -m demo.submit_p2p "gossip" --axl http://localhost:9002 --wait http://localhost:8888
+    python -m demo.submit_p2p "gossip" --axl http://localhost:9002
 """
 import argparse
 import json
@@ -22,7 +21,24 @@ import uuid
 import requests
 
 
-def submit_via_axl(axl_base: str, query: str, num_shards: int = 6, wait_api: str = None):
+def _drain_recv(axl_base: str) -> list[dict]:
+    """Pull all pending messages from the AXL recv queue."""
+    msgs = []
+    while True:
+        try:
+            resp = requests.get(f"{axl_base}/recv", timeout=3)
+            if resp.status_code == 204 or not resp.content:
+                break
+            data = resp.json()
+            if not data:
+                break
+            msgs.append(data)
+        except Exception:
+            break
+    return msgs
+
+
+def submit_via_axl(axl_base: str, query: str, num_shards: int = 6):
     axl_base = axl_base.rstrip("/")
 
     print("Reading AXL topology...")
@@ -48,14 +64,14 @@ def submit_via_axl(axl_base: str, query: str, num_shards: int = 6, wait_api: str
 
     # Route all tasks through the first AXL-connected peer; gossip does the rest.
     target   = peers[0]
-    task_ids = []
+    task_ids = []  # list of (shard_id, task_id)
 
     for shard_id in range(1, num_shards + 1):
         task_id = f"p2p-{uuid.uuid4().hex[:6]}-s{shard_id}"
         msg = {
             "type":     "task_submit",
             "msg_id":   str(uuid.uuid4()),
-            "from":     our_key,
+            "from":     our_key,          # nodes use this to push task_result back to us
             "task_id":  task_id,
             "payload":  f"query: {query}",
             "shard_id": shard_id,
@@ -70,59 +86,50 @@ def submit_via_axl(axl_base: str, query: str, num_shards: int = 6, wait_api: str
             ok = resp.status_code == 200
         except Exception:
             ok = False
-        print(f"  shard-{shard_id}: {task_id}  {'✓ sent via AXL' if ok else '✗ send failed'}")
+        print(f"  shard-{shard_id}: {task_id}  {'sent via AXL' if ok else 'send failed'}")
         task_ids.append((shard_id, task_id))
 
-    if not wait_api:
-        print("\nDone. (Pass --wait <whisper-api> to poll for results.)")
-        return
+    task_id_set = {tid for _, tid in task_ids}
+    done: dict[int, str] = {}  # shard_id -> result
 
-    print(f"\nWaiting for results via {wait_api}/state ...\n")
+    print(f"\nWaiting for push notifications via AXL /recv ...\n")
     deadline = time.time() + 120
-    while time.time() < deadline:
-        try:
-            state = requests.get(f"{wait_api}/state", timeout=5).json()
-        except Exception as e:
-            print(f"  (retrying — {e})")
-            time.sleep(2)
-            continue
-
-        tasks = state.get("tasks", {})
-        done  = {
-            sid: tasks[tid]["result"]
-            for sid, tid in task_ids
-            if tid in tasks and tasks[tid]["status"] == "completed"
-        }
+    while time.time() < deadline and len(done) < len(task_ids):
+        for msg in _drain_recv(axl_base):
+            if msg.get("type") == "task_result" and msg.get("task_id") in task_id_set:
+                sid    = int(msg.get("shard_id", 0))
+                result = msg.get("result", "")
+                if sid not in done:
+                    done[sid] = result
 
         bar = "".join("█" if i + 1 in done else "░" for i in range(num_shards))
         print(f"\r  [{bar}] {len(done)}/{len(task_ids)} complete", end="", flush=True)
 
-        if len(done) == len(task_ids):
-            print("\n\n═══════════════════════════════════════════")
-            print(f"  QUERY : {query!r}  (submitted via AXL P2P)")
-            print("═══════════════════════════════════════════")
-            for shard_id in sorted(done):
-                print(f"  {done[shard_id]}")
-            print("═══════════════════════════════════════════\n")
-            return
+        if len(done) < len(task_ids):
+            time.sleep(1)
 
-        time.sleep(2)
-
-    print(f"\nTimeout after 120s — {len(done)}/{len(task_ids)} tasks completed.")
-    sys.exit(1)
+    print()
+    if len(done) == len(task_ids):
+        print("\n═══════════════════════════════════════════")
+        print(f"  QUERY : {query!r}  (submitted + results via AXL)")
+        print("═══════════════════════════════════════════")
+        for shard_id in sorted(done):
+            print(f"  {done[shard_id]}")
+        print("═══════════════════════════════════════════\n")
+    else:
+        print(f"\nTimeout — {len(done)}/{len(task_ids)} tasks received push notifications.")
+        print("(Results may still be completing — check dashboard or whisper /state)")
+        sys.exit(1)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Submit task via AXL P2P message")
-    parser.add_argument("query",   help="Keyword to search across all shards")
-    parser.add_argument("--axl",   default="http://localhost:9002",
+    parser.add_argument("query",    help="Keyword to search across all shards")
+    parser.add_argument("--axl",    default="http://localhost:9002",
                         help="AXL node HTTP API base (default: http://localhost:9002)")
     parser.add_argument("--shards", type=int, default=6)
-    parser.add_argument("--wait",  default="http://localhost:8888",
-                        help="Whisper debug API to poll for results "
-                             "(empty string = skip polling)")
     args = parser.parse_args()
-    submit_via_axl(args.axl, args.query, args.shards, args.wait or None)
+    submit_via_axl(args.axl, args.query, args.shards)
 
 
 if __name__ == "__main__":

@@ -192,6 +192,13 @@ class WhisperNode:
                         self.ledger.handle_ledger_update(from_peer, msg)
                     elif mtype == "task_submit":
                         self._handle_p2p_task_submit(msg)
+                    elif mtype == "task_result":
+                        logger.info(
+                            "task_result for %s shard-%s via AXL: %s",
+                            msg.get("task_id", "?")[:12],
+                            msg.get("shard_id", "?"),
+                            (msg.get("result") or "")[:80],
+                        )
                     else:
                         logger.debug("unknown message type: %s", mtype)
                 except Exception as e:
@@ -214,11 +221,12 @@ class WhisperNode:
     def _handle_p2p_task_submit(self, msg: dict):
         """Accept a task submitted directly via the AXL encrypted overlay (no debug HTTP needed)."""
         try:
-            task_id  = msg["task_id"]
-            payload  = msg["payload"]
-            shard_id = int(msg["shard_id"])
-            sender   = (msg.get("from") or "?")[:8]
-            self.ledger.submit_task(task_id, payload, shard_id)
+            task_id       = msg["task_id"]
+            payload       = msg["payload"]
+            shard_id      = int(msg["shard_id"])
+            submitter_key = msg.get("from") or None
+            sender        = (submitter_key or "?")[:8]
+            self.ledger.submit_task(task_id, payload, shard_id, submitter_key=submitter_key)
             logger.info("P2P task %s (shard-%d) received via AXL from %s",
                         task_id[:12], shard_id, sender)
         except Exception as e:
