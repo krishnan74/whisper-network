@@ -76,35 +76,49 @@ class AgentRuntime:
                 logger.error("runtime scan error: %s", e, exc_info=True)
             time.sleep(SCAN_INTERVAL)
 
+    def _replica_shard_for(self) -> int:
+        """Return the shard ID this node is the designated replica for (circular: n→n-1)."""
+        return (self.shard_id - 2) % self.num_shards + 1
+
     def _scan(self):
         # 1. Renew any leases that are about to expire
         for task in self.ledger.get_tasks_needing_renewal():
             self.ledger.renew_lease(task.task_id)
 
         # 2. Find claimable tasks with shard-affinity ordering:
-        #    - Priority A: tasks for our own shard (we are the home node)
-        #    - Priority B: tasks whose home node is dead/unknown (survivor takeover)
+        #    - Priority A: tasks for our own shard (home node)
+        #    - Priority B: tasks for our replica shard (home dead — we're designated backup)
+        #    - Priority C: any other orphaned task with quorum (general survivor rescue)
         #    Skip tasks whose home node is alive — let it claim its own work.
-        claimable = self.ledger.get_claimable_tasks()
+        claimable  = self.ledger.get_claimable_tasks()
+        replica_id = self._replica_shard_for()
 
-        mine     = [t for t in claimable if t.shard_id == self.shard_id]
+        mine = [t for t in claimable if t.shard_id == self.shard_id]
 
-        # Only claim orphaned (non-home) tasks if we have a majority of the
-        # cluster visible — prevents both sides of a partition doing duplicate work.
+        # Only claim non-home tasks if we have a majority of the cluster visible —
+        # prevents both sides of a partition doing duplicate work.
         has_quorum = self.membership is None or self.membership.has_quorum()
-        orphaned   = [
+
+        def _home_dead(t):
+            return (self.membership is None
+                    or self.membership.get_peer_for_shard(t.shard_id) is None)
+
+        replica_orphaned = [
             t for t in claimable
-            if t.shard_id != self.shard_id
-            and has_quorum
-            and (self.membership is None
-                 or self.membership.get_peer_for_shard(t.shard_id) is None)
+            if t.shard_id == replica_id and t.shard_id != self.shard_id
+            and has_quorum and _home_dead(t)
+        ]
+        general_orphaned = [
+            t for t in claimable
+            if t.shard_id != self.shard_id and t.shard_id != replica_id
+            and has_quorum and _home_dead(t)
         ]
 
         if not has_quorum and any(t.shard_id != self.shard_id for t in claimable):
             logger.info("no quorum — skipping %d orphaned task(s) to avoid split-brain",
                         sum(1 for t in claimable if t.shard_id != self.shard_id))
 
-        for task in mine + orphaned:
+        for task in mine + replica_orphaned + general_orphaned:
             if not self.ledger.claim_task(task.task_id):
                 continue
 
