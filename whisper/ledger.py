@@ -83,6 +83,8 @@ class TaskLedger:
         self._peers_fn: Callable[[], list[str]] = lambda: []
         # Injected by node: returns keys currently up in the AXL overlay mesh
         self._axl_connected_fn: Callable[[], set[str]] = lambda: set()
+        # Injected by node: called when we complete a task we submitted ourselves
+        self._local_result_fn: Optional[Callable[[dict], None]] = None
 
         self._load()
 
@@ -93,6 +95,9 @@ class TaskLedger:
 
     def set_axl_connected_fn(self, fn: Callable[[], set[str]]):
         self._axl_connected_fn = fn
+
+    def set_local_result_fn(self, fn: Callable[[dict], None]):
+        self._local_result_fn = fn
 
     def recover_identity(self) -> int:
         """
@@ -236,18 +241,23 @@ class TaskLedger:
         return True
 
     def _notify_submitter(self, task: Task):
-        """Send a task_result push notification directly to the original submitter via AXL."""
-        if not task.submitter_key or task.submitter_key == self.our_key:
+        """Push task_result to the original submitter via AXL, or locally if self-submitted."""
+        if not task.submitter_key:
             return
         notification = {
-            "type":      "task_result",
-            "msg_id":    str(uuid.uuid4()),
-            "from":      self.our_key,
-            "task_id":   task.task_id,
-            "shard_id":  task.shard_id,
-            "result":    task.result,
+            "type":         "task_result",
+            "msg_id":       str(uuid.uuid4()),
+            "from":         self.our_key,
+            "task_id":      task.task_id,
+            "shard_id":     task.shard_id,
+            "result":       task.result,
             "completed_at": task.completed_at,
         }
+        if task.submitter_key == self.our_key:
+            # Self-submitted: buffer locally so /results endpoint can serve it
+            if self._local_result_fn:
+                self._local_result_fn(notification)
+            return
         try:
             self.transport.send(task.submitter_key, notification)
             logger.info(

@@ -125,6 +125,7 @@ class WhisperNode:
         )
         self.ledger.set_peers_fn(self.membership.get_alive_peers)
         self.ledger.set_axl_connected_fn(self.membership.get_axl_connected)
+        self.ledger.set_local_result_fn(self._buffer_result)
 
         self.runtime     = AgentRuntime(
             ledger     = self.ledger,
@@ -206,8 +207,7 @@ class WhisperNode:
                             msg.get("shard_id", "?"),
                             (msg.get("result") or "")[:80],
                         )
-                        with self._results_lock:
-                            self._task_results.append(msg)
+                        self._buffer_result(msg)
                     else:
                         logger.debug("unknown message type: %s", mtype)
                 except Exception as e:
@@ -262,6 +262,10 @@ class WhisperNode:
         if released:
             time.sleep(1.5)
         logger.info("shutdown complete (%d lease(s) released)", released)
+
+    def _buffer_result(self, result: dict):
+        with self._results_lock:
+            self._task_results.append(result)
 
     def drain_results(self) -> list:
         """Return and clear all buffered task_result push notifications."""
