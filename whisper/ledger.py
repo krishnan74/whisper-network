@@ -121,6 +121,33 @@ class TaskLedger:
             )
         return len(recovered)
 
+    def release_all_leases(self) -> int:
+        """
+        Called on graceful shutdown.
+        Resets all tasks we hold back to pending and gossips them so survivors
+        can claim immediately — no need to wait 30s for lease expiry.
+        Returns number of leases released.
+        """
+        released: list[Task] = []
+        with self._lock:
+            for task in self._tasks.values():
+                if task.leased_by == self.our_key and task.status == "in_progress":
+                    task.status       = "pending"
+                    task.leased_by    = None
+                    task.lease_expires = 0.0
+                    task.version     += 1
+                    released.append(task)
+            if released:
+                self._persist()
+
+        for task in released:
+            self._gossip_task(task)
+            self._log(f"released lease on task {task.task_id[:12]} (graceful shutdown)")
+
+        if released:
+            logger.info("graceful shutdown: released %d lease(s)", len(released))
+        return len(released)
+
     def submit_task(self, task_id: str, payload: str, shard_id: int) -> Task:
         task = Task(
             task_id      = task_id,

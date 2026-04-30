@@ -15,6 +15,7 @@ import argparse
 import json
 import logging
 import os
+import signal
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -217,6 +218,20 @@ class WhisperNode:
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
+    def shutdown(self):
+        """
+        Graceful shutdown: release all held leases so survivors can claim
+        them immediately (< 1s) rather than waiting for lease expiry (30s).
+        """
+        logger.info("graceful shutdown initiated — releasing leases...")
+        self.runtime.stop()
+        self.membership.stop()
+        released = self.ledger.release_all_leases()
+        # Brief pause so gossip can propagate the lease releases to peers
+        if released:
+            time.sleep(1.5)
+        logger.info("shutdown complete (%d lease(s) released)", released)
+
     def _on_peer_dead(self, dead_key: str):
         """Called when a peer is confirmed dead. The runtime will reclaim its tasks."""
         logger.info("peer confirmed dead: %s..., lease scanner will reclaim tasks", dead_key[:8])
@@ -295,11 +310,17 @@ def main():
     )
     node.start()
 
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("shutting down")
+    _stop = threading.Event()
+
+    def _handle_signal(signum, _frame):
+        logger.info("received signal %s — starting graceful shutdown", signum)
+        _stop.set()
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT,  _handle_signal)
+
+    _stop.wait()
+    node.shutdown()
 
 
 if __name__ == "__main__":
