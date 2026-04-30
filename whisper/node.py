@@ -41,6 +41,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._respond(200, "application/json", body)
         elif self.path == "/health":
             self._respond(200, "text/plain", b"ok")
+        elif self.path == "/results":
+            # Drain buffered task_result push notifications received via AXL
+            body = json.dumps(self.node.drain_results()).encode()
+            self._respond(200, "application/json", body)
         else:
             self._respond(404, "text/plain", b"not found")
 
@@ -98,6 +102,8 @@ class WhisperNode:
 
         self._axl_mesh_stats: dict    = {"total_peers": 0, "up_peers": 0}
         self._recovered_task_count: int = 0
+        self._task_results: list      = []   # buffered task_result AXL push notifications
+        self._results_lock            = threading.Lock()
 
         self.membership  = MembershipLayer(
             transport           = self.transport,
@@ -200,6 +206,8 @@ class WhisperNode:
                             msg.get("shard_id", "?"),
                             (msg.get("result") or "")[:80],
                         )
+                        with self._results_lock:
+                            self._task_results.append(msg)
                     else:
                         logger.debug("unknown message type: %s", mtype)
                 except Exception as e:
@@ -254,6 +262,13 @@ class WhisperNode:
         if released:
             time.sleep(1.5)
         logger.info("shutdown complete (%d lease(s) released)", released)
+
+    def drain_results(self) -> list:
+        """Return and clear all buffered task_result push notifications."""
+        with self._results_lock:
+            results = list(self._task_results)
+            self._task_results.clear()
+        return results
 
     def _on_peer_dead(self, dead_key: str):
         """Called when a peer is confirmed dead. The runtime will reclaim its tasks."""
