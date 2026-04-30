@@ -64,10 +64,11 @@ class TaskLedger:
         self.our_key     = our_key
         self.ledger_file = ledger_file
 
-        self._tasks:    dict[str, Task] = {}
-        self._seen_ids: deque           = deque(maxlen=SEEN_CACHE_SIZE)
-        self._events:   deque           = deque(maxlen=200)
-        self._lock      = threading.Lock()
+        self._tasks:          dict[str, Task] = {}
+        self._seen_ids:       deque           = deque(maxlen=SEEN_CACHE_SIZE)
+        self._events:         deque           = deque(maxlen=200)
+        self._lock            = threading.Lock()
+        self._tasks_rescued:  int             = 0   # orphaned tasks claimed from dead nodes
 
         # Injected by node so we can gossip to alive peers
         self._peers_fn: Callable[[], list[str]] = lambda: []
@@ -177,13 +178,16 @@ class TaskLedger:
             task = self._tasks.get(task_id)
             if not task or task.status == "completed":
                 return False
-            now = time.time()
-            if task.status == "in_progress" and task.lease_expires > now:
+            now      = time.time()
+            was_orphaned = (task.status == "in_progress" and task.lease_expires < now)
+            if task.status == "in_progress" and not was_orphaned:
                 return False  # valid lease held by someone else
-            task.status       = "in_progress"
-            task.leased_by    = self.our_key
+            if was_orphaned:
+                self._tasks_rescued += 1
+            task.status        = "in_progress"
+            task.leased_by     = self.our_key
             task.lease_expires = now + LEASE_DURATION
-            task.version     += 1
+            task.version      += 1
             self._persist()
 
         self._gossip_task(task)
@@ -266,11 +270,14 @@ class TaskLedger:
         in_prog   = sum(1 for t in tasks if t.status == "in_progress")
 
         times = [t.completed_at - t.created_at for t in completed if t.completed_at]
+        with self._lock:
+            rescued = self._tasks_rescued
         return {
-            "total":       total,
-            "completed":   len(completed),
-            "in_progress": in_prog,
-            "pending":     pending,
+            "total":                total,
+            "completed":            len(completed),
+            "in_progress":          in_prog,
+            "pending":              pending,
+            "tasks_rescued":        rescued,
             "avg_completion_s":     round(sum(times) / len(times), 2) if times else None,
             "fastest_completion_s": round(min(times), 2) if times else None,
             "slowest_completion_s": round(max(times), 2) if times else None,

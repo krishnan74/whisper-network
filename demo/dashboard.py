@@ -197,11 +197,15 @@ def metrics_panel(states: list[Optional[dict]]) -> Panel:
     fast = best.get("fastest_completion_s")
     slow = best.get("slowest_completion_s")
 
+    rescued = best.get("tasks_rescued", 0)
+    rescued_str = f"  [bold cyan]↺ {rescued} task(s) rescued from dead nodes[/bold cyan]" \
+                  if rescued else ""
+
     lines = [
         f"Tasks   : {best.get('completed',0)} completed / "
         f"{best.get('in_progress',0)} in-progress / "
         f"{best.get('pending',0)} pending  "
-        f"(total {best.get('total',0)})",
+        f"(total {best.get('total',0)}){rescued_str}",
         f"Avg completion : {avg:.2f}s" if avg is not None else "Avg completion : —",
         f"Fastest        : {fast:.2f}s" if fast is not None else "Fastest        : —",
         f"Slowest        : {slow:.2f}s" if slow is not None else "Slowest        : —",
