@@ -163,6 +163,34 @@ The dashboard's event log shows the exact SUSPECTED → CONFIRMED DEAD → claim
 
 ---
 
+## Bonus: Network Partition + Heal Demo
+
+Unlike a node kill (one side wins), a **network partition** splits the cluster into two groups that each try to continue working. This tests the full partition-tolerance guarantee.
+
+```bash
+# Network must already be running via ./run_local.sh
+./demo/partition_demo.sh "transformer"
+```
+
+The script:
+1. Submits a query across all 6 shards
+2. Freezes the AXL processes for nodes 4, 5, 6 (`SIGSTOP`) — they can no longer send or receive messages
+3. Nodes 1–3 detect the silence, mark 4–6 as DEAD, and reclaim their tasks
+4. Resumes group B (`SIGCONT`) — heartbeats flow again, the mesh reconverges
+5. Completed results gossip from group A to group B's ledger
+
+| Time | Event |
+|------|-------|
+| t+0s  | Group B (nodes 4-6) partitioned |
+| t+10s | Group A marks group B SUSPECTED |
+| t+11s | 2 reports → CONFIRMED DEAD |
+| t+30s | Group B's leases expire |
+| t+35s | Group A claims and executes orphaned tasks |
+| t+40s | All 6/6 tasks COMPLETED on group A |
+| heal  | Group B resumes, ledger converges via gossip |
+
+---
+
 ## Centralized Comparison (Redis)
 
 Run this side-by-side to show what a centralized broker does when its coordinator dies.
@@ -206,6 +234,7 @@ whisper/
 demo/
   submit_task.py        CLI: submit a query via debug HTTP and wait for results
   submit_p2p.py         CLI: submit a query via AXL P2P message (no HTTP needed)
+  partition_demo.sh     scripted partition + heal demo (SIGSTOP/SIGCONT group B)
   dashboard.py          rich live terminal UI (shows AXL mesh stats per node)
   shards/shard-*.txt    6 AI/ML research document corpus files
 
