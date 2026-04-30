@@ -206,6 +206,18 @@ svg { width: 100%; height: 100%; }
 .task-dot.pending    { fill: var(--muted); }
 @keyframes task-pulse { 0%,100%{r:4px} 50%{r:6px} }
 
+/* ── Particle / orbit / ripple styles ── */
+.orbit-dot {
+  pointer-events: none;
+  filter: blur(0.5px);
+}
+.task-particle {
+  pointer-events: none;
+}
+.task-ripple {
+  pointer-events: none;
+}
+
 #graph-status {
   position: absolute;
   bottom: 10px; left: 12px;
@@ -322,6 +334,11 @@ const socket = io();
 let simulation;
 const nodeMap = {};  // id → d3 datum (preserves x/y across updates)
 
+// ── Task animation state ──────────────────────────────────────────────────────
+const taskStates  = {};   // task_id → {status, nodeId}
+const activeOrbits = {};  // task_id → {nodeId, angle, speed}
+let   animFrameId = null;
+
 // ── D3 init ───────────────────────────────────────────────────────────────────
 function initSim() {
   const svg = d3.select('#graph');
@@ -331,6 +348,8 @@ function initSim() {
   g.append('g').attr('id','glows');
   g.append('g').attr('id','nodes');
   g.append('g').attr('id','labels');
+  g.append('g').attr('id','particles');  // ripples + flying particles
+  g.append('g').attr('id','orbits');     // orbiting in_progress dots
 
   const W = document.getElementById('graph-wrap').clientWidth;
   const H = document.getElementById('graph-wrap').clientHeight;
@@ -341,6 +360,13 @@ function initSim() {
     .force('center',    d3.forceCenter(W / 2, H / 2))
     .force('collision', d3.forceCollide(48))
     .on('tick', tick);
+
+  // Continuous orbit animation loop
+  function orbitLoop() {
+    updateOrbits();
+    animFrameId = requestAnimationFrame(orbitLoop);
+  }
+  orbitLoop();
 }
 
 function stClass(s) {
@@ -426,6 +452,135 @@ function tick() {
     .attr('cx', d => d.x).attr('cy', d => d.y);
   d3.select('#labels').selectAll('text')
     .attr('x', d => d.x).attr('y', d => d.y);
+}
+
+// ── Task animations ───────────────────────────────────────────────────────────
+
+function animateTasks(tasks, nodes) {
+  // Build a short-key → full node-id map
+  const nodeByShort = {};
+  nodes.forEach(n => {
+    const key = n.short || n.id.slice(0, 8);
+    nodeByShort[key] = n.id;
+  });
+
+  const taskIdSet = new Set(tasks.map(t => t.task_id));
+
+  tasks.forEach(task => {
+    const execId = nodeByShort[task.leased_by] || null;
+    const prev   = taskStates[task.task_id];
+
+    if (!prev) {
+      // First time seeing this task
+      taskStates[task.task_id] = { status: task.status, nodeId: execId };
+      if (task.status === 'in_progress' && execId) {
+        activeOrbits[task.task_id] = {
+          nodeId: execId,
+          angle:  Math.random() * 2 * Math.PI,
+          speed:  1.2 + Math.random() * 0.8,
+        };
+      }
+      return;
+    }
+
+    if (prev.status !== task.status) {
+      if (task.status === 'in_progress' && execId) {
+        spawnParticle(execId);
+        activeOrbits[task.task_id] = {
+          nodeId: execId,
+          angle:  Math.random() * 2 * Math.PI,
+          speed:  1.2 + Math.random() * 0.8,
+        };
+      }
+      if (task.status === 'completed') {
+        const rippleTarget = execId || prev.nodeId;
+        if (rippleTarget) spawnRipple(rippleTarget);
+        delete activeOrbits[task.task_id];
+      }
+      taskStates[task.task_id] = { status: task.status, nodeId: execId || prev.nodeId };
+    } else if (task.status === 'in_progress' && execId && !activeOrbits[task.task_id]) {
+      // Orbit entry disappeared (e.g. page reload) — restore it
+      activeOrbits[task.task_id] = {
+        nodeId: execId,
+        angle:  Math.random() * 2 * Math.PI,
+        speed:  1.2 + Math.random() * 0.8,
+      };
+    }
+  });
+
+  // Remove state for tasks that disappeared
+  Object.keys(taskStates).forEach(id => {
+    if (!taskIdSet.has(id)) {
+      delete taskStates[id];
+      delete activeOrbits[id];
+    }
+  });
+}
+
+function spawnParticle(nodeId) {
+  const node = nodeMap[nodeId];
+  if (!node) return;
+
+  // Spawn from a random direction around the node and fly in
+  const angle  = Math.random() * 2 * Math.PI;
+  const radius = 70 + Math.random() * 60;
+  const sx = node.x + Math.cos(angle) * radius;
+  const sy = node.y + Math.sin(angle) * radius;
+
+  d3.select('#particles').append('circle')
+    .attr('class', 'task-particle')
+    .attr('r', 3.5)
+    .attr('cx', sx).attr('cy', sy)
+    .attr('fill', '#58a6ff')
+    .attr('opacity', 0.95)
+    .transition().duration(550).ease(d3.easeQuadIn)
+      .attr('cx', node.x).attr('cy', node.y)
+      .attr('r', 1).attr('opacity', 0)
+      .remove();
+}
+
+function spawnRipple(nodeId) {
+  const node = nodeMap[nodeId];
+  if (!node) return;
+
+  d3.select('#particles').append('circle')
+    .attr('class', 'task-ripple')
+    .attr('cx', node.x).attr('cy', node.y)
+    .attr('r', 30)
+    .attr('fill', 'none')
+    .attr('stroke', '#3fb950')
+    .attr('stroke-width', 2.5)
+    .attr('opacity', 0.85)
+    .transition().duration(800).ease(d3.easeQuadOut)
+      .attr('r', 65)
+      .attr('stroke-width', 0.5)
+      .attr('opacity', 0)
+      .remove();
+}
+
+function updateOrbits() {
+  const now    = performance.now() / 1000;
+  const orbits = Object.entries(activeOrbits);
+
+  const sel = d3.select('#orbits').selectAll('circle.orbit-dot')
+    .data(orbits, d => d[0]);
+
+  sel.enter().append('circle')
+    .attr('class', 'orbit-dot')
+    .attr('r', 3)
+    .attr('fill', '#d29922')
+    .attr('opacity', 0.85);
+
+  sel.exit().remove();
+
+  d3.select('#orbits').selectAll('circle.orbit-dot').each(function([taskId, orbit]) {
+    const node = nodeMap[orbit.nodeId];
+    if (!node) return;
+    const a = now * orbit.speed + orbit.angle;
+    d3.select(this)
+      .attr('cx', node.x + Math.cos(a) * 38)
+      .attr('cy', node.y + Math.sin(a) * 38);
+  });
 }
 
 // ── Sidebar updates ───────────────────────────────────────────────────────────
@@ -523,6 +678,7 @@ socket.on('update', data => {
   updateSidebar(data);
   updateEvents(data.events || []);
   updateTaskList(data.tasks || []);
+  animateTasks(data.tasks || [], data.nodes || []);
 });
 
 initSim();
