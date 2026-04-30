@@ -21,6 +21,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
+from whisper.crypto import Signer
 from whisper.ledger import TaskLedger
 from whisper.membership import MembershipLayer
 from whisper.runtime import AgentRuntime
@@ -86,11 +87,13 @@ class WhisperNode:
         renew_threshold:    float = 15.0,
         heartbeat_interval: float = 2.0,
         suspect_after:      float = 10.0,
+        key_file:           Optional[str] = None,
     ):
         self.debug_port  = debug_port
 
         self.transport   = AXLTransport(api_base)
         self.our_key     = self._wait_for_axl()
+        self._signer     = Signer(key_file)
         logger.info("our key: %s...", self.our_key[:16])
 
         self._axl_mesh_stats: dict    = {"total_peers": 0, "up_peers": 0}
@@ -112,6 +115,7 @@ class WhisperNode:
             ledger_file      = ledger_file,
             lease_duration   = lease_duration,
             renew_threshold  = renew_threshold,
+            signer           = self._signer,
         )
         self.ledger.set_peers_fn(self.membership.get_alive_peers)
         self.ledger.set_axl_connected_fn(self.membership.get_axl_connected)
@@ -312,6 +316,8 @@ def main():
                         help="Heartbeat broadcast interval in seconds")
     parser.add_argument("--suspect-after",       type=float, default=10.0,
                         help="Silence threshold before marking peer SUSPECTED")
+    parser.add_argument("--key-file",            default=None,
+                        help="Path to ed25519 PEM private key for ledger_update signing")
     parser.add_argument("--log-level",           default="INFO")
     args = parser.parse_args()
 
@@ -331,6 +337,7 @@ def main():
         renew_threshold     = args.renew_threshold,
         heartbeat_interval  = args.heartbeat_interval,
         suspect_after       = args.suspect_after,
+        key_file            = args.key_file,
     )
     node.start()
 

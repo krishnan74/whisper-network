@@ -96,6 +96,7 @@ for i in 1 2 3 4 5 6; do
         --renew-threshold     "${RENEW_THRESHOLD}" \
         --heartbeat-interval  "${HEARTBEAT_INTERVAL}" \
         --suspect-after       "${SUSPECT_AFTER}" \
+        --key-file            "keys/private-${i}.pem" \
         --log-level           "${LOG_LEVEL}" \
         > "logs/whisper-${i}.log" 2>&1 &
     PIDS+=($!)

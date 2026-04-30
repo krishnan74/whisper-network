@@ -21,6 +21,8 @@ from collections import deque
 from dataclasses import asdict, dataclass
 from typing import Callable, Optional
 
+from whisper.crypto import Signer
+
 logger = logging.getLogger(__name__)
 
 # ── Tuning ────────────────────────────────────────────────────────────────────
@@ -57,16 +59,18 @@ class TaskLedger:
     def __init__(
         self,
         transport,
-        our_key:         str   = "",
-        ledger_file:     str   = "ledger.json",
-        lease_duration:  float = LEASE_DURATION,
-        renew_threshold: float = RENEW_THRESHOLD,
+        our_key:         str            = "",
+        ledger_file:     str            = "ledger.json",
+        lease_duration:  float          = LEASE_DURATION,
+        renew_threshold: float          = RENEW_THRESHOLD,
+        signer:          Optional[Signer] = None,
     ):
         self.transport       = transport
         self.our_key         = our_key
         self.ledger_file     = ledger_file
         self.lease_duration  = lease_duration
         self.renew_threshold = renew_threshold
+        self._signer         = signer or Signer()
 
         self._tasks:          dict[str, Task] = {}
         self._seen_ids:       deque           = deque(maxlen=SEEN_CACHE_SIZE)
@@ -298,6 +302,10 @@ class TaskLedger:
             return
         self._seen_ids.append(msg_id)
 
+        if not self._signer.verify(msg):
+            logger.warning("dropping ledger_update with invalid signature from %s", from_peer[:8])
+            return
+
         task_dict = msg.get("task")
         if not task_dict:
             return
@@ -362,6 +370,7 @@ class TaskLedger:
             "hops":   GOSSIP_HOPS,
             "task":   task.to_dict(),
         }
+        msg = self._signer.sign(msg)
         self._fanout_raw(msg)
 
     def _fanout_raw(self, msg: dict):
