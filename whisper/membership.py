@@ -101,10 +101,22 @@ class MembershipLayer:
     def set_tasks_held_fn(self, fn: Callable[[], list[str]]):
         self._tasks_held_fn = fn
 
+    def get_effective_cluster_size(self) -> int:
+        """
+        Return the cluster size to use for quorum calculations.
+
+        If cluster_size was set explicitly (> 0), use it.
+        Otherwise, infer from known peers: alive + dead + self.
+        This lets new nodes join and be counted without any manual config.
+        """
+        if self.cluster_size > 0:
+            return self.cluster_size
+        with self._lock:
+            return len(self._peers) + 1  # peers + self
+
     def has_quorum(self) -> bool:
         """
         Returns True if this node can see a strict majority (>50%) of the cluster.
-        Always True when cluster_size is 0 (quorum check disabled).
 
         Confirmed-DEAD nodes are subtracted from the effective cluster size — they
         have been independently verified gone by 2+ reports and will not produce
@@ -113,12 +125,13 @@ class MembershipLayer:
         network partition where both sides confirm the other dead still risks
         split-brain, but gossip version reconciliation makes that safe in practice.
         """
-        if self.cluster_size <= 0:
-            return True
         with self._lock:
             alive = sum(1 for p in self._peers.values() if p.status == PeerStatus.ALIVE)
             dead  = sum(1 for p in self._peers.values() if p.status == PeerStatus.DEAD)
-        effective_size = self.cluster_size - dead
+        cluster = self.get_effective_cluster_size()
+        if cluster <= 1:
+            return True  # single-node cluster always has quorum
+        effective_size = cluster - dead
         return (alive + 1) > effective_size / 2
 
     def get_peer_for_shard(self, shard_id: int) -> Optional[str]:
