@@ -467,6 +467,8 @@ class WhisperNode:
                                     if task.status == "in_progress" else 0.0,
                 "result":          task.result,
                 "version":         task.version,
+                "encrypted":       task.encrypted,
+                "threshold_t":     task.threshold_t,
             }
 
         m_events = self.membership.get_events(15)
