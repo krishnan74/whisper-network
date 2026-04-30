@@ -9,6 +9,19 @@ SHARD_ID="${SHARD_ID:-1}"
 CLUSTER_SIZE="${CLUSTER_SIZE:-6}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
 
+# FAST_MODE: shorter leases for quick judge demos
+if [ "${FAST_MODE:-0}" = "1" ]; then
+    LEASE_DURATION="${LEASE_DURATION:-5}"
+    RENEW_THRESHOLD="${RENEW_THRESHOLD:-2}"
+    HEARTBEAT_INTERVAL="${HEARTBEAT_INTERVAL:-1}"
+    SUSPECT_AFTER="${SUSPECT_AFTER:-4}"
+else
+    LEASE_DURATION="${LEASE_DURATION:-30}"
+    RENEW_THRESHOLD="${RENEW_THRESHOLD:-15}"
+    HEARTBEAT_INTERVAL="${HEARTBEAT_INTERVAL:-2}"
+    SUSPECT_AFTER="${SUSPECT_AFTER:-10}"
+fi
+
 KEY_FILE="/keys/private.pem"
 CONFIG_FILE="/config/node-config-${NODE_NUM}.json"
 SHARD_FILE="/shards/shard-${SHARD_ID}.txt"
@@ -38,10 +51,15 @@ done
 # ── Start the whisper node ────────────────────────────────────────────────────
 echo "[start.sh] starting whisper node (shard=${SHARD_ID}, debug=:${DEBUG_PORT})"
 exec python -m whisper.node \
-    --api-base     "http://127.0.0.1:${API_PORT}" \
-    --shard-id     "${SHARD_ID}" \
-    --shard-file   "${SHARD_FILE}" \
-    --ledger-file  "${LEDGER_FILE}" \
-    --debug-port   "${DEBUG_PORT}" \
-    --cluster-size "${CLUSTER_SIZE}" \
-    --log-level    "${LOG_LEVEL}"
+    --api-base            "http://127.0.0.1:${API_PORT}" \
+    --shard-id            "${SHARD_ID}" \
+    --shard-file          "${SHARD_FILE}" \
+    --ledger-file         "${LEDGER_FILE}" \
+    --debug-port          "${DEBUG_PORT}" \
+    --cluster-size        "${CLUSTER_SIZE}" \
+    --lease-duration      "${LEASE_DURATION}" \
+    --renew-threshold     "${RENEW_THRESHOLD}" \
+    --heartbeat-interval  "${HEARTBEAT_INTERVAL}" \
+    --suspect-after       "${SUSPECT_AFTER}" \
+    --key-file            "${KEY_FILE}" \
+    --log-level           "${LOG_LEVEL}"
