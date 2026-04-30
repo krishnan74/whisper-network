@@ -10,48 +10,58 @@ This is impossible with a centralized broker. It is an emergent property of P2P 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  Layer 4: Demo — distributed document query           │
-├──────────────────────────────────────────────────────┤
-│  Layer 3: Agent Runtime                               │
-│  polls ledger, claims tasks, executes                 │
-├──────────────────────────────────────────────────────┤
-│  Layer 2: Distributed Task Ledger                     │
-│  gossip-replicated, lease-based, append-only          │
-│  ↳ topology-aware fanout: AXL-connected peers first   │
-├──────────────────────────────────────────────────────┤
-│  Layer 1: Gossip Membership (SWIM-lite)               │
-│  heartbeats, failure detection, peer gossip           │
-│  ↳ AXL topology is the authoritative peer registry   │
-│  ↳ AXL-corroborated failure: detects in ~5s not 10s  │
-├──────────────────────────────────────────────────────┤
-│  AXL (Gensyn Agent eXchange Layer)                    │
-│  POST /send  GET /recv  GET /topology                 │
-│  ↳ encrypted overlay (Yggdrasil + ed25519 identity)   │
-│  ↳ polled every 5s — drives peer discovery & failover │
-│  ↳ supports native P2P task_submit messages           │
-└──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  Layer 4: Demo — distributed document query                   │
+├──────────────────────────────────────────────────────────────┤
+│  Layer 3: Agent Runtime                                       │
+│  polls ledger, claims tasks, executes shard queries           │
+│  ↳ shard-affinity: home node claims first, survivors rescue  │
+│  ↳ quorum guard: orphaned tasks require >50% cluster visible │
+├──────────────────────────────────────────────────────────────┤
+│  Layer 2: Distributed Task Ledger                             │
+│  gossip-replicated, lease-based, conflict-free               │
+│  ↳ topology-aware fanout: AXL-connected peers first          │
+│  ↳ ed25519 signed: every ledger_update message is signed     │
+│    with the node's AXL key — forged updates are dropped      │
+│  ↳ push notifications: completed tasks are sent directly     │
+│    to the original submitter via AXL (task_result msg)       │
+├──────────────────────────────────────────────────────────────┤
+│  Layer 1: Gossip Membership (SWIM-lite)                       │
+│  heartbeats, failure detection, peer gossip                   │
+│  ↳ AXL topology is the authoritative peer registry           │
+│  ↳ AXL-corroborated failure: detects in ~5s not 10s         │
+├──────────────────────────────────────────────────────────────┤
+│  AXL (Gensyn Agent eXchange Layer)                           │
+│  POST /send  GET /recv  GET /topology                        │
+│  ↳ encrypted overlay (Yggdrasil + ed25519 identity)          │
+│  ↳ polled every 5s — drives peer discovery & failover        │
+│  ↳ bidirectional bus: task_submit in, task_result out        │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 **AXL as the authoritative peer registry.** Every 5 seconds each node polls `/topology`. New peers in the AXL overlay are immediately added to whisper membership. Peers that disappear from the AXL mesh *and* have been silent for >5s are fast-tracked to SUSPECTED — cutting failure detection time roughly in half (5s vs 10s).
 
 **Topology-aware gossip.** Both the membership and ledger layers sort gossip targets so AXL-directly-connected peers always get priority. Messages travel fewer overlay hops before reaching the full mesh.
 
-**AXL-native task submission.** Tasks can be injected directly via the AXL encrypted overlay using the `task_submit` message type (`demo/submit_p2p.py`), with no dependency on any node's debug HTTP port. AXL's ed25519 identity tags every task with the submitter's cryptographic key.
+**Cryptographic ledger integrity.** Every `ledger_update` gossip message is signed with the sending node's ed25519 private key (the same PEM used by AXL). Receiving nodes verify the signature before accepting any state change. Unsigned messages are accepted for backwards compatibility; forged messages are logged and dropped. The signed fields are: `msg_id`, `task_id`, `status`, `leased_by`, `version`.
+
+**AXL as a bidirectional application bus.** Tasks can be injected via `task_submit` AXL messages (no debug HTTP required). When each shard completes, the executing node sends a `task_result` push notification directly back to the submitter's AXL identity. `submit_p2p.py` polls AXL `/recv` for these notifications — the entire submit→execute→result cycle flows through AXL's encrypted overlay.
+
+**Shard-affinity routing.** Each node has a home shard. It preferentially claims tasks for that shard first. When a node dies, the survivors detect which shards are now unowned and claim those tasks — but only if they can see a strict majority of the cluster (quorum guard against split-brain).
 
 **Failure detection:** AXL topology drop + >5s silence → SUSPECTED (fast path). Otherwise: peer silent for >10s → SUSPECTED. 2 independent gossip reports → CONFIRMED DEAD → expired leases reclaimed by survivors.
 
-**Lease mechanism:** 30s leases, renewed every 15s. If a node dies, renewal stops; lease expires; any survivor claims the task on its next 5s scan cycle.
+**Lease mechanism:** Configurable duration (default 30s), renewed every 15s. On graceful shutdown, all held leases are released immediately so survivors can claim within 1s. On crash, lease expiry triggers reclaim. `FAST_MODE=1` runs 5s leases for quicker demos.
 
-**Any node handles any shard.** Each node loads all 6 document shards so surviving nodes can pick up work from dead ones.
+**Identity recovery.** If a node restarts with the same AXL key (same PEM), it re-adopts its in-progress tasks by refreshing their lease expiry. Peers see updated leases within one gossip round — no human intervention needed.
 
 ---
 
 ## Requirements
 
-- Python 3.11+ with `requests`, `rich`, and `redis` (see install step below)
-- AXL binary at `axl/node` (pre-built from `../axl/` — see below)
-- `openssl` (for key generation)
+- Python 3.11+ (see `requirements.txt`: `requests`, `rich`, `cryptography`, `flask`, `flask-socketio`)
+- AXL binary at `axl/node` (pre-built from `../axl/`)
+- `openssl` (for key generation, called automatically by `run_local.sh`)
 
 ---
 
@@ -66,6 +76,9 @@ docker compose up --build
 # Submit a query (separate terminal)
 python -m demo.submit_task "attention" --api http://localhost:8888
 
+# Submit via AXL P2P (demonstrates encrypted overlay as application bus)
+python -m demo.submit_p2p "attention" --axl http://localhost:9002
+
 # Kill 3 nodes mid-flight
 docker compose kill node-4 node-5 node-6
 
@@ -74,10 +87,7 @@ docker compose pause node-4 node-5 node-6
 docker compose unpause node-4 node-5 node-6
 ```
 
-Node debug APIs are exposed on host ports 8888–8893. The dashboard works from the host:
-```bash
-python -m demo.dashboard
-```
+Node debug APIs are exposed on host ports 8888–8893.
 
 ---
 
@@ -110,23 +120,33 @@ pip install -r requirements.txt
 ./run_local.sh
 ```
 
-This generates 6 ed25519 keys (once), writes per-node AXL configs into `axl-local/`, then starts 6 AXL processes and 6 whisper nodes. Logs go to `logs/`. Leave this running in one terminal.
+This generates 6 ed25519 keys (once), writes per-node AXL configs into `axl-local/`, then starts 6 AXL processes and 6 whisper nodes. Each node is given its own key file for ledger message signing. Logs go to `logs/`. Leave this running in one terminal.
 
-After ~15 seconds you should see output like:
-```
-  node-1: shard=1 peers=5 alive=5
-  node-2: shard=2 peers=5 alive=5
-  ...
-```
-
-### 4. Open the live dashboard (separate terminal)
+For faster recovery timing (good for live demos):
 
 ```bash
-cd /home/krish74/whisper-network
-.venv/bin/python -m demo.dashboard
+FAST_MODE=1 ./run_local.sh
 ```
 
-The dashboard polls all 6 nodes every second and shows node status, task ledger, and event log.
+`FAST_MODE=1` uses 5s leases, 2s renew threshold, 1s heartbeat, 4s suspect — failure recovery in ~10s instead of ~40s.
+
+### 4. Open the Web UI (separate terminal)
+
+```bash
+.venv/bin/python -m demo.webui
+```
+
+Opens at **http://localhost:5000** — a live D3.js force-directed graph showing:
+- Nodes as circles (green = alive, yellow = suspected, red = dead)
+- AXL mesh edges between alive peers
+- Sidebar: per-node cards with shard ID, AXL mesh stats, and completion metrics
+- Cluster totals: tasks submitted, completed, alive nodes, rescued tasks
+
+Or use the terminal dashboard instead:
+
+```bash
+.venv/bin/python -m demo.dashboard
+```
 
 ### 5. Submit a query
 
@@ -135,16 +155,16 @@ The dashboard polls all 6 nodes every second and shows node status, task ledger,
 .venv/bin/python -m demo.submit_task "attention" --api http://localhost:8888
 ```
 
-**Option B — via AXL P2P message (no debug HTTP needed):**
+**Option B — via AXL P2P (full encrypted overlay, push notifications):**
 ```bash
 .venv/bin/python -m demo.submit_p2p "attention" --axl http://localhost:9002
 ```
 
-`submit_p2p` reads the AXL topology, picks a peer, and sends `task_submit` messages directly through the encrypted overlay. The receiving whisper node gossips the tasks to the full mesh.
+`submit_p2p` reads the AXL topology, picks a live peer, sends `task_submit` messages directly through the encrypted overlay (including `our_key` so nodes know where to send results back). Each node that completes a shard sends a `task_result` push notification back via AXL. `submit_p2p` polls AXL `/recv` for these notifications — no debug HTTP involved.
 
-Other good queries: `"gossip"`, `"neural network"`, `"alignment"`, `"transformer"`, `"consensus"`.
+Good queries: `"gossip"`, `"neural network"`, `"alignment"`, `"transformer"`, `"consensus"`.
 
-You will see all 6 tasks distributed and completed within ~10 seconds.
+All 6 tasks distribute and complete within ~10 seconds.
 
 ---
 
@@ -174,18 +194,29 @@ kill -9 $(pgrep -f "shard-id 4") $(pgrep -f "shard-id 5") $(pgrep -f "shard-id 6
 # Watch the progress bar stall, then recover
 ```
 
+### Option C — Fully automated (recommended for demos)
+
+```bash
+./demo/run_demo.sh "gossip"
+```
+
+Starts the network, waits for quorum, submits a task, kills nodes 4–6 mid-execution, and reports timing.
+
 ### What you will observe
 
 | Time | Event |
 |------|-------|
 | t+0s  | Nodes 4, 5, 6 killed |
-| t+10s | Surviving nodes mark them SUSPECTED (silent >10s) |
+| t+5s  | AXL topology sync: nodes 4-6 absent from mesh |
+| t+5s  | Surviving nodes fast-track them to SUSPECTED |
 | t+11s | 2 independent suspicion reports → CONFIRMED DEAD |
 | t+30s | Dead nodes' leases expire |
 | t+35s | Surviving nodes claim and execute the 3 orphaned tasks |
 | t+40s | All 6/6 tasks COMPLETED |
 
-The dashboard's event log shows the exact SUSPECTED → CONFIRMED DEAD → claimed sequence in real time.
+With `FAST_MODE=1` the full recovery completes in ~10s instead of ~40s.
+
+The Web UI and dashboard event log show the exact SUSPECTED → CONFIRMED DEAD → claimed sequence in real time.
 
 ---
 
@@ -200,20 +231,20 @@ Unlike a node kill (one side wins), a **network partition** splits the cluster i
 
 The script:
 1. Submits a query across all 6 shards
-2. Freezes the AXL processes for nodes 4, 5, 6 (`SIGSTOP`) — they can no longer send or receive messages
+2. Freezes the AXL processes for nodes 4, 5, 6 (`SIGSTOP`) — they can no longer send or receive
 3. Nodes 1–3 detect the silence, mark 4–6 as DEAD, and reclaim their tasks
 4. Resumes group B (`SIGCONT`) — heartbeats flow again, the mesh reconverges
 5. Completed results gossip from group A to group B's ledger
 
 | Time | Event |
 |------|-------|
-| t+0s  | Group B (nodes 4-6) partitioned |
-| t+10s | Group A marks group B SUSPECTED |
+| t+0s  | Group B (nodes 4-6) partitioned via SIGSTOP |
+| t+5s  | Group A fast-suspects group B (AXL mesh drop) |
 | t+11s | 2 reports → CONFIRMED DEAD |
 | t+30s | Group B's leases expire |
 | t+35s | Group A claims and executes orphaned tasks |
 | t+40s | All 6/6 tasks COMPLETED on group A |
-| heal  | Group B resumes, ledger converges via gossip |
+| heal  | Group B resumes (SIGCONT), ledger converges via gossip |
 
 ---
 
@@ -245,33 +276,34 @@ Inject a timed kill for a scripted side-by-side:
 ```
 axl/
   node                  pre-built AXL binary
-  node-config-*.json    AXL configs for Docker Compose
+axl-configs/
+  node-config-*.json    Docker-appropriate AXL configs (hostname-based peers)
 axl-local/              AXL configs generated by run_local.sh (gitignored)
 keys/                   ed25519 keys generated by run_local.sh (gitignored)
 logs/                   per-node logs written by run_local.sh
 
 whisper/
-  transport.py          thin wrapper: AXL /send, /recv, /topology
+  transport.py          AXL HTTP wrapper: /send, /recv, /topology
   membership.py         Layer 1: heartbeat + SWIM-lite failure detection
   ledger.py             Layer 2: lease-based task ledger + gossip replication
-  runtime.py            Layer 3: agent execution loop (handles all shards)
-  node.py               entry point: wires layers + debug HTTP server (:8888+n)
+  crypto.py             ed25519 sign/verify for ledger_update messages
+  runtime.py            Layer 3: agent execution loop (shard-affinity + quorum)
+  node.py               entry point: wires all layers + debug HTTP (:8888+n)
 
 demo/
-  run_demo.sh           automated end-to-end demo (starts network, kills 3, shows recovery)
-  submit_task.py        CLI: submit a query via debug HTTP and wait for results
-  submit_p2p.py         CLI: submit a query via AXL P2P message (no HTTP needed)
-  partition_demo.sh     scripted partition + heal demo (SIGSTOP/SIGCONT group B)
-  dashboard.py          rich live terminal UI (AXL mesh stats, metrics, event log)
+  webui.py              Flask+SocketIO server → live D3.js topology graph
+  static/index.html     D3.js frontend (force-directed graph, metrics sidebar)
+  dashboard.py          rich terminal UI (AXL mesh stats, metrics, event log)
+  submit_task.py        submit a query via debug HTTP, poll for results
+  submit_p2p.py         submit via AXL P2P, receive results via AXL /recv
+  run_demo.sh           automated end-to-end demo (kill 3, watch recovery)
+  partition_demo.sh     scripted partition + heal (SIGSTOP/SIGCONT group B)
   shards/shard-*.txt    6 AI/ML research document corpus files
-
-axl-configs/
-  node-config-*.json    Docker-appropriate AXL configs (hostname-based peers)
 
 comparison/
   redis_broker.py       centralized equivalent — freezes when Redis dies
 
-docker-compose.yml      6-node Compose setup (requires `docker compose` plugin)
+docker-compose.yml      6-node Compose setup
 run_local.sh            6-node local setup (no Docker, verified working)
 ```
 
@@ -279,18 +311,21 @@ run_local.sh            6-node local setup (no Docker, verified working)
 
 ## Tuning Constants
 
-| Parameter | Value | File |
-|-----------|-------|------|
-| Heartbeat interval | 2s | `membership.py` |
-| Suspect threshold (whisper) | 10s | `membership.py` |
-| Suspect threshold (AXL fast-path) | 5s | `membership.py` |
-| Dead reports needed | 2 | `membership.py` |
-| Gossip fanout | 3 peers (AXL-connected first) | both |
-| Gossip hops | 8 | both |
-| AXL topology sync interval | 5s | `node.py` |
-| Lease duration | 30s | `ledger.py` |
-| Lease renew threshold | 15s | `ledger.py` |
-| Agent scan interval | 5s | `runtime.py` |
+All timing parameters are configurable via CLI flags. `run_local.sh` passes them through.
+
+| Parameter | Default | FAST_MODE | CLI flag |
+|-----------|---------|-----------|----------|
+| Heartbeat interval | 2s | 1s | `--heartbeat-interval` |
+| Suspect threshold | 10s | 4s | `--suspect-after` |
+| AXL fast-suspect | 5s | 2s | (derived: `suspect_after/2`) |
+| Dead reports needed | 2 | 2 | — |
+| Gossip fanout | 3 | 3 | — |
+| Gossip hops | 8 | 8 | — |
+| AXL topology sync | 5s | 5s | — |
+| Lease duration | 30s | 5s | `--lease-duration` |
+| Lease renew threshold | 15s | 2s | `--renew-threshold` |
+| Agent scan interval | 5s | 5s | — |
+| Cluster size (quorum) | 6 | 6 | `--cluster-size` |
 
 ---
 
