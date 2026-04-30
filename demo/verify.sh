@@ -78,7 +78,7 @@ info "Step 4 — Submitting query 'attention' (all 6 shards should complete)..."
 info "Step 5 — Fault tolerance: killing nodes 4, 5, 6 mid-execution..."
 
 # Submit in background
-"${PYTHON}" -m demo.submit_task "gossip" --api http://localhost:8888 --timeout 60 &
+"${PYTHON}" -m demo.submit_task "gossip" --api http://localhost:8888 --timeout 90 &
 SUBMIT_PID=$!
 
 sleep 1

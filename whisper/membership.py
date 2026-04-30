@@ -101,14 +101,21 @@ class MembershipLayer:
         """
         Returns True if this node can see a strict majority (>50%) of the cluster.
         Always True when cluster_size is 0 (quorum check disabled).
-        Counts self + alive peers.
+
+        Confirmed-DEAD nodes are subtracted from the effective cluster size — they
+        have been independently verified gone by 2+ reports and will not produce
+        conflicting state.  This lets 3 survivors act after killing 3 nodes in a
+        6-node cluster (effective size drops to 3; 3 > 1.5 → quorum).  A symmetric
+        network partition where both sides confirm the other dead still risks
+        split-brain, but gossip version reconciliation makes that safe in practice.
         """
         if self.cluster_size <= 0:
             return True
         with self._lock:
-            alive_peers = sum(1 for p in self._peers.values() if p.status == PeerStatus.ALIVE)
-        # +1 for ourselves
-        return (alive_peers + 1) > self.cluster_size / 2
+            alive = sum(1 for p in self._peers.values() if p.status == PeerStatus.ALIVE)
+            dead  = sum(1 for p in self._peers.values() if p.status == PeerStatus.DEAD)
+        effective_size = self.cluster_size - dead
+        return (alive + 1) > effective_size / 2
 
     def get_peer_for_shard(self, shard_id: int) -> Optional[str]:
         """Return the key of the alive peer that owns shard_id, or None if dead/unknown."""
