@@ -155,13 +155,15 @@ class MembershipLayer:
     def axl_sync(self, connected_keys: set[str]):
         """
         Called by the node's topology-sync loop every 5s.
-        - Adds newly appeared AXL peers to membership.
+        - Adds newly appeared AXL peers to membership and sends them a direct node_join
+          so they discover us immediately (AXL-native discovery — no bootstrap seed needed).
         - Fast-tracks peers absent from the AXL mesh AND silent too long to SUSPECTED,
           cutting failure detection from SUSPECT_AFTER down to SUSPECT_AFTER/2.
         """
         now = time.time()
         fast_suspect_after = self.suspect_after / 2
         newly_suspected: list[str] = []
+        newly_discovered: list[str] = []
 
         with self._lock:
             self._axl_connected = set(connected_keys)
@@ -169,6 +171,7 @@ class MembershipLayer:
             for key in connected_keys:
                 if key != self.our_key and key not in self._peers:
                     self._peers[key] = PeerInfo(peer_key=key)
+                    newly_discovered.append(key)
                     self._log(f"discovered peer via AXL topology: {key[:8]}")
 
             for key, peer in list(self._peers.items()):
@@ -183,6 +186,11 @@ class MembershipLayer:
                         f"node-{key[:8]} SUSPECTED "
                         f"(dropped from AXL mesh + {now - peer.last_seen:.0f}s silence)"
                     )
+
+        # Send node_join directly to newly-seen AXL peers so they discover us without
+        # waiting for the next heartbeat cycle — makes peer discovery purely AXL-driven.
+        for key in newly_discovered:
+            self._send_join_to(key)
 
         for key in newly_suspected:
             self._gossip_suspicion(key)
@@ -200,16 +208,22 @@ class MembershipLayer:
             targets = list(self._axl_connected)
         if not targets:
             return
-        msg = {
+        for peer_key in targets:
+            self._send_join_to(peer_key, hops=GOSSIP_HOPS)
+        logger.info("broadcast node_join to %d AXL peer(s)", len(targets))
+
+    def _send_join_to(self, peer_key: str, hops: int = 1):
+        """Send a node_join directly to one peer, carrying enc_pubkey if available."""
+        msg: dict = {
             "type":     "node_join",
             "msg_id":   str(uuid.uuid4()),
             "from":     self.our_key,
             "shard_id": self.our_shard_id,
-            "hops":     GOSSIP_HOPS,
+            "hops":     hops,
         }
-        for peer_key in targets:
-            self.transport.send(peer_key, msg)
-        logger.info("broadcast node_join to %d AXL peer(s)", len(targets))
+        if self.our_enc_pubkey:
+            msg["enc_pubkey"] = self.our_enc_pubkey
+        self.transport.send(peer_key, msg)
 
     def start(self):
         self._running = True
@@ -325,6 +339,8 @@ class MembershipLayer:
                 self._log(f"node {sender[:8]} rejoined (was {peer.status.value})")
             if msg.get("shard_id") is not None:
                 peer.shard_id = int(msg["shard_id"])
+            if msg.get("enc_pubkey"):
+                peer.enc_pubkey = msg["enc_pubkey"]
         hops = msg.get("hops", 0) - 1
         if hops > 0:
             self._fanout({**msg, "hops": hops})
