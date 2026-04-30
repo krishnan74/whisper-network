@@ -162,6 +162,7 @@ class WhisperNode:
             )
 
         self.membership.start()
+        self.membership.broadcast_join()
         self.runtime.start()
         self._start_debug_server()
         self._start_recv_loop()
@@ -186,7 +187,7 @@ class WhisperNode:
                     # ed25519 key. Peer discovery happens via msg["from"] in heartbeats.
 
                     mtype = msg.get("type")
-                    if mtype in ("heartbeat", "suspicion"):
+                    if mtype in ("heartbeat", "suspicion", "node_join"):
                         self.membership.handle_message(from_peer, msg)
                     elif mtype == "ledger_update":
                         self.ledger.handle_ledger_update(from_peer, msg)

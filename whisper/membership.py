@@ -167,6 +167,27 @@ class MembershipLayer:
     def get_events(self, n: int = 20) -> list[str]:
         return list(self._events)[:n]
 
+    def broadcast_join(self):
+        """
+        Announce this node's arrival to all AXL-connected peers immediately.
+        Called once on startup so existing nodes add us to membership without
+        waiting for the next heartbeat + topology-sync cycle.
+        """
+        with self._lock:
+            targets = list(self._axl_connected)
+        if not targets:
+            return
+        msg = {
+            "type":     "node_join",
+            "msg_id":   str(uuid.uuid4()),
+            "from":     self.our_key,
+            "shard_id": self.our_shard_id,
+            "hops":     GOSSIP_HOPS,
+        }
+        for peer_key in targets:
+            self.transport.send(peer_key, msg)
+        logger.info("broadcast node_join to %d AXL peer(s)", len(targets))
+
     def start(self):
         self._running = True
         threading.Thread(target=self._heartbeat_loop,  daemon=True, name="hb").start()
@@ -188,6 +209,8 @@ class MembershipLayer:
             self._on_heartbeat(from_peer, msg)
         elif mtype == "suspicion":
             self._on_suspicion(from_peer, msg)
+        elif mtype == "node_join":
+            self._on_node_join(from_peer, msg)
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -261,6 +284,25 @@ class MembershipLayer:
         targets = (axl_alive + other_alive)[:GOSSIP_FANOUT]
         for peer_key in targets:
             self.transport.send(peer_key, msg)
+
+    def _on_node_join(self, from_peer: str, msg: dict):
+        sender = msg.get("from")
+        if not sender or sender == self.our_key:
+            return
+        with self._lock:
+            if sender not in self._peers:
+                self._peers[sender] = PeerInfo(peer_key=sender)
+                self._log(f"node {sender[:8]} joined cluster dynamically")
+            peer = self._peers[sender]
+            peer.last_seen = time.time()
+            if peer.status != PeerStatus.ALIVE:
+                peer.status = PeerStatus.ALIVE
+                self._log(f"node {sender[:8]} rejoined (was {peer.status.value})")
+            if msg.get("shard_id") is not None:
+                peer.shard_id = int(msg["shard_id"])
+        hops = msg.get("hops", 0) - 1
+        if hops > 0:
+            self._fanout({**msg, "hops": hops})
 
     def _on_heartbeat(self, from_peer: str, msg: dict):
         # Always use the key from the message body — X-From-Peer-Id is a
