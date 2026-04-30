@@ -6,6 +6,7 @@ NODE_NUM="${NODE_NUM:-1}"
 API_PORT="${API_PORT:-9002}"
 DEBUG_PORT="${DEBUG_PORT:-8888}"
 SHARD_ID="${SHARD_ID:-1}"
+CLUSTER_SIZE="${CLUSTER_SIZE:-6}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
 
 KEY_FILE="/keys/private.pem"
@@ -37,9 +38,10 @@ done
 # ── Start the whisper node ────────────────────────────────────────────────────
 echo "[start.sh] starting whisper node (shard=${SHARD_ID}, debug=:${DEBUG_PORT})"
 exec python -m whisper.node \
-    --api-base    "http://127.0.0.1:${API_PORT}" \
-    --shard-id    "${SHARD_ID}" \
-    --shard-file  "${SHARD_FILE}" \
-    --ledger-file "${LEDGER_FILE}" \
-    --debug-port  "${DEBUG_PORT}" \
-    --log-level   "${LOG_LEVEL}"
+    --api-base     "http://127.0.0.1:${API_PORT}" \
+    --shard-id     "${SHARD_ID}" \
+    --shard-file   "${SHARD_FILE}" \
+    --ledger-file  "${LEDGER_FILE}" \
+    --debug-port   "${DEBUG_PORT}" \
+    --cluster-size "${CLUSTER_SIZE}" \
+    --log-level    "${LOG_LEVEL}"

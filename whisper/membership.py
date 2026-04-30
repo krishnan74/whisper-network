@@ -47,13 +47,15 @@ class MembershipLayer:
     def __init__(
         self,
         transport,
-        our_key:      str,
-        our_shard_id: int = 0,
-        on_peer_dead: Optional[Callable[[str], None]] = None,
+        our_key:       str,
+        our_shard_id:  int = 0,
+        cluster_size:  int = 0,   # total expected nodes; 0 = quorum check disabled
+        on_peer_dead:  Optional[Callable[[str], None]] = None,
     ):
         self.transport    = transport
         self.our_key      = our_key
         self.our_shard_id = our_shard_id
+        self.cluster_size = cluster_size
         self.on_peer_dead = on_peer_dead
 
         self._peers:      dict[str, PeerInfo] = {}
@@ -90,6 +92,19 @@ class MembershipLayer:
 
     def set_tasks_held_fn(self, fn: Callable[[], list[str]]):
         self._tasks_held_fn = fn
+
+    def has_quorum(self) -> bool:
+        """
+        Returns True if this node can see a strict majority (>50%) of the cluster.
+        Always True when cluster_size is 0 (quorum check disabled).
+        Counts self + alive peers.
+        """
+        if self.cluster_size <= 0:
+            return True
+        with self._lock:
+            alive_peers = sum(1 for p in self._peers.values() if p.status == PeerStatus.ALIVE)
+        # +1 for ourselves
+        return (alive_peers + 1) > self.cluster_size / 2
 
     def get_peer_for_shard(self, shard_id: int) -> Optional[str]:
         """Return the key of the alive peer that owns shard_id, or None if dead/unknown."""

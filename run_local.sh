@@ -78,12 +78,13 @@ for i in 1 2 3 4 5 6; do
     sleep 0.5  # stagger startup slightly
 
     "${PYTHON}" -m whisper.node \
-        --api-base    "http://127.0.0.1:${API_PORT}" \
-        --shard-id    "${i}" \
-        --shard-file  "${SHARDS_DIR}/shard-${i}.txt" \
-        --ledger-file "data/ledger-${i}.json" \
-        --debug-port  "${DEBUG_PORT}" \
-        --log-level   "${LOG_LEVEL}" \
+        --api-base     "http://127.0.0.1:${API_PORT}" \
+        --shard-id     "${i}" \
+        --shard-file   "${SHARDS_DIR}/shard-${i}.txt" \
+        --ledger-file  "data/ledger-${i}.json" \
+        --debug-port   "${DEBUG_PORT}" \
+        --cluster-size 6 \
+        --log-level    "${LOG_LEVEL}" \
         > "logs/whisper-${i}.log" 2>&1 &
     PIDS+=($!)
 done

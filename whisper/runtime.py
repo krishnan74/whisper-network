@@ -86,12 +86,21 @@ class AgentRuntime:
         claimable = self.ledger.get_claimable_tasks()
 
         mine     = [t for t in claimable if t.shard_id == self.shard_id]
-        orphaned = [
+
+        # Only claim orphaned (non-home) tasks if we have a majority of the
+        # cluster visible — prevents both sides of a partition doing duplicate work.
+        has_quorum = self.membership is None or self.membership.has_quorum()
+        orphaned   = [
             t for t in claimable
             if t.shard_id != self.shard_id
+            and has_quorum
             and (self.membership is None
                  or self.membership.get_peer_for_shard(t.shard_id) is None)
         ]
+
+        if not has_quorum and any(t.shard_id != self.shard_id for t in claimable):
+            logger.info("no quorum — skipping %d orphaned task(s) to avoid split-brain",
+                        sum(1 for t in claimable if t.shard_id != self.shard_id))
 
         for task in mine + orphaned:
             if not self.ledger.claim_task(task.task_id):

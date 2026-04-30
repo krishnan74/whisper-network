@@ -76,11 +76,12 @@ class _Handler(BaseHTTPRequestHandler):
 class WhisperNode:
     def __init__(
         self,
-        api_base:    str   = "http://127.0.0.1:9002",
-        shard_id:    int   = 1,
-        shard_file:  str   = "demo/shards/shard-1.txt",
-        ledger_file: str   = "ledger.json",
-        debug_port:  int   = 8888,
+        api_base:     str = "http://127.0.0.1:9002",
+        shard_id:     int = 1,
+        shard_file:   str = "demo/shards/shard-1.txt",
+        ledger_file:  str = "ledger.json",
+        debug_port:   int = 8888,
+        cluster_size: int = 0,
     ):
         self.debug_port  = debug_port
 
@@ -95,6 +96,7 @@ class WhisperNode:
             transport    = self.transport,
             our_key      = self.our_key,
             our_shard_id = shard_id,
+            cluster_size = cluster_size,
             on_peer_dead = self._on_peer_dead,
         )
 
@@ -290,10 +292,12 @@ def main():
                         help="Document shard this node is responsible for")
     parser.add_argument("--shard-file", required=True,
                         help="Path to this node's document shard text file")
-    parser.add_argument("--ledger-file", default="ledger.json")
-    parser.add_argument("--debug-port", type=int, default=8888,
+    parser.add_argument("--ledger-file",   default="ledger.json")
+    parser.add_argument("--debug-port",   type=int, default=8888,
                         help="Port for the debug / dashboard HTTP API")
-    parser.add_argument("--log-level",  default="INFO")
+    parser.add_argument("--cluster-size", type=int, default=6,
+                        help="Total expected nodes; used for quorum check (0=disable)")
+    parser.add_argument("--log-level",    default="INFO")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -302,11 +306,12 @@ def main():
     )
 
     node = WhisperNode(
-        api_base    = args.api_base,
-        shard_id    = args.shard_id,
-        shard_file  = args.shard_file,
-        ledger_file = args.ledger_file,
-        debug_port  = args.debug_port,
+        api_base     = args.api_base,
+        shard_id     = args.shard_id,
+        shard_file   = args.shard_file,
+        ledger_file  = args.ledger_file,
+        debug_port   = args.debug_port,
+        cluster_size = args.cluster_size,
     )
     node.start()
 
