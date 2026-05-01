@@ -17,6 +17,9 @@ Usage:
 import argparse
 import json
 import os
+import re
+import signal
+import subprocess
 import random
 import threading
 import time
@@ -44,6 +47,9 @@ _lock = threading.Lock()
 # Economy state
 _provider_balances: dict = {}   # node_key -> cumulative AXL earned
 _credited_tasks: set = set()    # task_ids already credited
+
+# Kill/revive state
+_node_pids: dict[int, int] = {}  # debug_port -> whisper node PID
 
 
 @app.route("/")
@@ -89,6 +95,70 @@ def api_submit():
     if not submitted:
         return json.dumps({"error": "all node submissions failed"}), 503
     return json.dumps({"ok": True, "submitted": submitted, "query": query})
+
+
+def _find_whisper_pid(port: int) -> int | None:
+    """Find the PID of the whisper node listening on debug_port."""
+    # Try ss (Linux, fast)
+    try:
+        out = subprocess.check_output(
+            ["ss", "-tlnpH", f"sport = :{port}"],
+            stderr=subprocess.DEVNULL, text=True, timeout=2,
+        )
+        m = re.search(r"pid=(\d+)", out)
+        if m:
+            pid = int(m.group(1))
+            _node_pids[port] = pid
+            return pid
+    except Exception:
+        pass
+    # Fallback: lsof
+    try:
+        out = subprocess.check_output(
+            ["lsof", "-ti", f"tcp:{port}"],
+            stderr=subprocess.DEVNULL, text=True, timeout=2,
+        )
+        pids = [int(p) for p in out.strip().split() if p.strip().isdigit()]
+        if pids:
+            _node_pids[port] = pids[0]
+            return pids[0]
+    except Exception:
+        pass
+    return _node_pids.get(port)  # last cached value (works for SIGSTOP'd procs)
+
+
+@app.route("/api/kill", methods=["POST"])
+def api_kill():
+    data = flask_request.get_json(force=True) or {}
+    port = int(data.get("port", 0))
+    pid  = _find_whisper_pid(port)
+    if not pid:
+        return json.dumps({"error": f"no process found on :{port}"}), 404
+    try:
+        os.kill(pid, signal.SIGSTOP)
+        ts = time.strftime("%H:%M:%S")
+        with _lock:
+            _global_events.appendleft(f"[{ts}] ⏹ node :{port} killed by operator (PID {pid})")
+        return json.dumps({"ok": True, "pid": pid, "port": port})
+    except Exception as e:
+        return json.dumps({"error": str(e)}), 500
+
+
+@app.route("/api/revive", methods=["POST"])
+def api_revive():
+    data = flask_request.get_json(force=True) or {}
+    port = int(data.get("port", 0))
+    pid  = _find_whisper_pid(port)
+    if not pid:
+        return json.dumps({"error": f"no process found on :{port}"}), 404
+    try:
+        os.kill(pid, signal.SIGCONT)
+        ts = time.strftime("%H:%M:%S")
+        with _lock:
+            _global_events.appendleft(f"[{ts}] ▶ node :{port} revived by operator (PID {pid})")
+        return json.dumps({"ok": True, "pid": pid, "port": port})
+    except Exception as e:
+        return json.dumps({"error": str(e)}), 500
 
 
 @app.route("/snapshot")
