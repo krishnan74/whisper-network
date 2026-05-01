@@ -31,15 +31,17 @@ class AgentRuntime:
         num_shards:  int = 6,
         payload_cipher   = None,
         collect_shares_fn = None,
+        capabilities: list = None,
     ):
-        self.ledger           = ledger
-        self.our_key          = our_key
-        self.shard_id         = shard_id   # this node's home shard
-        self.shard_dir        = shard_dir
-        self.membership       = membership  # used for shard-affinity routing
-        self.num_shards       = num_shards
-        self.payload_cipher   = payload_cipher   # Optional[PayloadCipher]
-        self.collect_shares_fn = collect_shares_fn  # Optional[Callable]
+        self.ledger            = ledger
+        self.our_key           = our_key
+        self.shard_id          = shard_id   # this node's home shard
+        self.shard_dir         = shard_dir
+        self.membership        = membership  # used for shard-affinity routing
+        self.num_shards        = num_shards
+        self.payload_cipher    = payload_cipher
+        self.collect_shares_fn = collect_shares_fn
+        self.capabilities      = set(capabilities) if capabilities else set()
 
         # Load ALL shards — any surviving node can execute any task
         self._shards: dict[int, list[str]] = {}
@@ -82,6 +84,16 @@ class AgentRuntime:
         """Return the shard ID this node is the designated replica for (circular: n→n-1)."""
         return (self.shard_id - 2) % self.num_shards + 1
 
+    def _capable_peer_alive(self, required_caps: set) -> bool:
+        """Return True if any alive peer (other than us) advertises all required capabilities."""
+        if not required_caps or self.membership is None:
+            return False
+        for peer in self.membership.get_all_peers().values():
+            from whisper.membership import PeerStatus
+            if peer.status == PeerStatus.ALIVE and required_caps.issubset(set(peer.capabilities or [])):
+                return True
+        return False
+
     def _scan(self):
         # 1. Renew any leases that are about to expire
         for task in self.ledger.get_tasks_needing_renewal():
@@ -105,6 +117,12 @@ class AgentRuntime:
             return (self.membership is None
                     or self.membership.get_peer_for_shard(t.shard_id) is None)
 
+        def _no_capable_peer(t):
+            """True when no alive peer advertises our capabilities for this task's shard."""
+            if not self.capabilities:
+                return True  # no capability filtering — claim anything
+            return not self._capable_peer_alive(self.capabilities)
+
         replica_orphaned = [
             t for t in claimable
             if t.shard_id == replica_id and t.shard_id != self.shard_id
@@ -113,7 +131,7 @@ class AgentRuntime:
         general_orphaned = [
             t for t in claimable
             if t.shard_id != self.shard_id and t.shard_id != replica_id
-            and has_quorum and _home_dead(t)
+            and has_quorum and _home_dead(t) and _no_capable_peer(t)
         ]
 
         if not has_quorum and any(t.shard_id != self.shard_id for t in claimable):

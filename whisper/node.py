@@ -157,6 +157,7 @@ class WhisperNode:
             membership         = self.membership,
             payload_cipher     = self._cipher,
             collect_shares_fn  = self._collect_threshold_shares,
+            capabilities       = list(capabilities) if capabilities else [],
         )
 
         self.membership.set_tasks_held_fn(self.ledger.get_my_task_ids)
