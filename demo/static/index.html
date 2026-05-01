@@ -833,6 +833,7 @@ function updateEvents(events) {
     if      (/DEAD|confirmed dead/i.test(ev))              cls = 'ev-dead';
     else if (/SUSPECTED|suspect/i.test(ev))                cls = 'ev-suspect';
     else if (/alive|recovered|revived|joined/i.test(ev))   cls = 'ev-alive';
+    else if (/auction|bid|awarded/i.test(ev))               cls = 'ev-economy';
     else if (/AXL|earned|\+0\.\d+ AXL/i.test(ev))         cls = 'ev-economy';
     else if (/completed|claimed|task|rescued/i.test(ev))   cls = 'ev-task';
     else if (/join/i.test(ev))                             cls = 'ev-join';

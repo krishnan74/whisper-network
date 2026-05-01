@@ -110,6 +110,10 @@ class WhisperNode:
         self._task_results: list      = []   # buffered task_result AXL push notifications
         self._results_lock            = threading.Lock()
 
+        # Auction state: task_id → {"event": Event, "bids": list}
+        self._bid_collections: dict   = {}
+        self._bids_lock               = threading.Lock()
+
         # Threshold share collection: task_id → (event, needed, [shares])
         self._share_collections: dict = {}
         self._threshold_cipher        = ThresholdCipher.from_payload_cipher(self._cipher)
@@ -221,6 +225,12 @@ class WhisperNode:
                         self.ledger.handle_ledger_update(from_peer, msg)
                     elif mtype == "task_submit":
                         self._handle_p2p_task_submit(msg)
+                    elif mtype == "task_bid_request":
+                        self._handle_task_bid_request(msg)
+                    elif mtype == "task_bid":
+                        self._handle_task_bid(msg)
+                    elif mtype == "task_award":
+                        self._handle_task_award(msg)
                     elif mtype == "task_result":
                         logger.info(
                             "task_result for %s shard-%s via AXL: %s",
@@ -276,18 +286,135 @@ class WhisperNode:
                 logger.debug("lease convergence error: %s", e)
 
     def _handle_p2p_task_submit(self, msg: dict):
-        """Accept a task submitted directly via the AXL encrypted overlay (no debug HTTP needed)."""
+        """Accept a task via AXL, enter it into the ledger, then run a price auction."""
         try:
             task_id       = msg["task_id"]
             payload       = msg["payload"]
             shard_id      = int(msg["shard_id"])
             submitter_key = msg.get("from") or None
-            sender        = (submitter_key or "?")[:8]
             self.ledger.submit_task(task_id, payload, shard_id, submitter_key=submitter_key)
             logger.info("P2P task %s (shard-%d) received via AXL from %s",
-                        task_id[:12], shard_id, sender)
+                        task_id[:12], shard_id, (submitter_key or "?")[:8])
+            # Run price auction in background — winner gets an immediate claim head-start
+            threading.Thread(
+                target=self._run_auction, args=(task_id, shard_id),
+                daemon=True, name=f"auction-{task_id[:8]}",
+            ).start()
         except Exception as e:
             logger.warning("malformed task_submit message: %s", e)
+
+    def _run_auction(self, task_id: str, shard_id: int):
+        """
+        Broadcast a bid request to all alive peers, collect bids for 400ms,
+        award the task to the lowest-price bidder. The winner skips the normal
+        scan-cycle delay and claims immediately, while the ledger's lease
+        mechanism still guards against split-brain races.
+        """
+        event = threading.Event()
+        with self._bids_lock:
+            self._bid_collections[task_id] = {"event": event, "bids": []}
+
+        peers = self.membership.get_alive_peers()
+        request = {
+            "type":     "task_bid_request",
+            "msg_id":   str(uuid.uuid4()),
+            "from":     self.our_key,
+            "task_id":  task_id,
+            "shard_id": shard_id,
+        }
+        for peer in peers:
+            self.transport.send(peer, request)
+
+        # Wait up to 400ms for bids; signal early once ≥3 arrive
+        event.wait(timeout=0.4)
+
+        with self._bids_lock:
+            col = self._bid_collections.pop(task_id, {})
+        bids = col.get("bids", [])
+
+        # Include self as a candidate
+        bids.append({
+            "from":         self.our_key,
+            "price_axl":    self.membership.our_price_axl,
+            "capabilities": self.membership.our_capabilities,
+            "shard_id":     self.runtime.shard_id,
+        })
+
+        # Prefer shard home node (best locality), then lowest price
+        def _bid_key(b):
+            home_bonus = 0.0 if b["shard_id"] == shard_id else 0.005
+            return b["price_axl"] + home_bonus
+
+        bids.sort(key=_bid_key)
+        winner = bids[0]
+        winner_key   = winner["from"]
+        winner_price = winner["price_axl"]
+
+        logger.info(
+            "auction task %s shard-%d: %d bid(s) → %s @ %.3f AXL",
+            task_id[:12], shard_id, len(bids), winner_key[:8], winner_price,
+        )
+
+        # Send award to winner
+        self.transport.send(winner_key, {
+            "type":      "task_award",
+            "msg_id":    str(uuid.uuid4()),
+            "from":      self.our_key,
+            "task_id":   task_id,
+            "winner":    winner_key,
+            "price_axl": winner_price,
+            "shard_id":  shard_id,
+        })
+
+        all_prices = ", ".join(f"{b['from'][:8]}@{b['price_axl']:.3f}" for b in bids[:4])
+        self.ledger._log(
+            f"auction shard-{shard_id}: {len(bids)} bid(s) [{all_prices}] "
+            f"→ {winner_key[:8]} @ {winner_price:.3f} AXL"
+        )
+
+    def _handle_task_bid_request(self, msg: dict):
+        """Peer opened an auction — respond with our price and capabilities."""
+        task_id   = msg.get("task_id")
+        requester = msg.get("from")
+        if not task_id or not requester or requester == self.our_key:
+            return
+        self.transport.send(requester, {
+            "type":         "task_bid",
+            "msg_id":       str(uuid.uuid4()),
+            "from":         self.our_key,
+            "task_id":      task_id,
+            "shard_id":     self.runtime.shard_id,
+            "price_axl":    self.membership.our_price_axl,
+            "capabilities": self.membership.our_capabilities,
+        })
+
+    def _handle_task_bid(self, msg: dict):
+        """Inbound bid from a peer — store it, signal when we have enough."""
+        task_id = msg.get("task_id")
+        if not task_id:
+            return
+        with self._bids_lock:
+            col = self._bid_collections.get(task_id)
+            if col is None:
+                return
+            col["bids"].append({
+                "from":         msg.get("from"),
+                "price_axl":    float(msg.get("price_axl", 0.01)),
+                "capabilities": msg.get("capabilities", []),
+                "shard_id":     msg.get("shard_id"),
+            })
+            if len(col["bids"]) >= 3:
+                col["event"].set()
+
+    def _handle_task_award(self, msg: dict):
+        """We won the auction — claim the task immediately to beat the scan-cycle delay."""
+        task_id    = msg.get("task_id")
+        winner_key = msg.get("winner")
+        price      = msg.get("price_axl", 0.01)
+        if not task_id or winner_key != self.our_key:
+            return
+        logger.info("won auction for task %s (%.3f AXL) — claiming immediately", task_id[:12], price)
+        self.ledger.claim_task(task_id)
 
     def _start_debug_server(self):
         _Handler.node = self
