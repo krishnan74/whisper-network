@@ -3,27 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Whisper Network</title>
+<title>Whisper Network — Trustless P2P AI Compute</title>
 <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
 :root {
-  --bg:        #0d1117;
-  --surface:   #161b22;
-  --surface2:  #21262d;
-  --border:    #30363d;
-  --text:      #e6edf3;
-  --muted:     #8b949e;
-  --alive:     #3fb950;
-  --alive-bg:  #0d2818;
-  --suspect:   #d29922;
-  --suspect-bg:#2d1f00;
-  --dead:      #f85149;
-  --dead-bg:   #300a0a;
-  --blue:      #58a6ff;
-  --blue-bg:   #0d1f3c;
-  --purple:    #bc8cff;
-  --mono:      'SF Mono','Fira Code','Cascadia Code',monospace;
+  --bg:           #04080f;
+  --bg2:          #060c16;
+  --surface:      #091525;
+  --surface2:     #0c1c2e;
+  --surface3:     #112238;
+  --border:       #163350;
+  --border2:      #1d4468;
+  --text:         #cce4f7;
+  --muted:        #3f7099;
+  --muted2:       #224d6a;
+
+  --alive:        #00f5a0;
+  --alive-bg:     rgba(0,245,160,0.07);
+  --alive-glow:   rgba(0,245,160,0.25);
+
+  --suspect:      #ffb800;
+  --suspect-bg:   rgba(255,184,0,0.07);
+  --suspect-glow: rgba(255,184,0,0.25);
+
+  --dead:         #ff2d55;
+  --dead-bg:      rgba(255,45,85,0.07);
+  --dead-glow:    rgba(255,45,85,0.25);
+
+  --blue:         #00d4ff;
+  --blue-bg:      rgba(0,212,255,0.07);
+  --blue-glow:    rgba(0,212,255,0.25);
+
+  --purple:       #b57bff;
+  --purple-bg:    rgba(181,123,255,0.07);
+  --purple-glow:  rgba(181,123,255,0.25);
+
+  --gold:         #f5c542;
+  --gold-bg:      rgba(245,197,66,0.08);
+  --gold-glow:    rgba(245,197,66,0.25);
+
+  --mono: 'JetBrains Mono','Fira Code','Cascadia Code','SF Mono',monospace;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -39,294 +59,423 @@ body {
 
 /* ── Header ── */
 #header {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 10px 20px;
-  background: var(--surface);
+  padding: 0 20px;
+  height: 54px;
+  background: linear-gradient(180deg, rgba(9,21,37,0.98) 0%, rgba(6,12,22,0.98) 100%);
+  border-bottom: 1px solid var(--border2);
+  flex-shrink: 0;
+  z-index: 10;
+  overflow: hidden;
+}
+#header::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--blue) 20%, var(--purple) 50%, var(--alive) 80%, transparent);
+  opacity: 0.5;
+}
+#header::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -60%; width: 40%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0,212,255,0.04), transparent);
+  animation: header-scan 10s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes header-scan { 0%{left:-60%} 100%{left:160%} }
+
+.logo-block { display: flex; flex-direction: column; margin-right: 20px; flex-shrink: 0; }
+.logo-name {
+  font-size: 13px; font-weight: bold; color: var(--blue);
+  letter-spacing: 3px; text-transform: uppercase; line-height: 1;
+  text-shadow: 0 0 24px var(--blue-glow);
+}
+.logo-sub { font-size: 7.5px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-top: 3px; }
+
+.hbar { width: 1px; height: 28px; background: var(--border2); margin: 0 16px; flex-shrink: 0; }
+.hstat { display: flex; flex-direction: column; align-items: center; min-width: 46px; }
+.hstat .val { font-size: 17px; font-weight: bold; line-height: 1; font-variant-numeric: tabular-nums; transition: color 0.4s; }
+.hstat .lbl { font-size: 7px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 2px; }
+.hstat .val.green  { color: var(--alive);   text-shadow: 0 0 12px var(--alive-glow); }
+.hstat .val.yellow { color: var(--suspect); text-shadow: 0 0 12px var(--suspect-glow); }
+.hstat .val.red    { color: var(--dead);    text-shadow: 0 0 12px var(--dead-glow); }
+.hstat .val.blue   { color: var(--blue);    text-shadow: 0 0 12px var(--blue-glow); }
+.hstat .val.purple { color: var(--purple);  text-shadow: 0 0 12px var(--purple-glow); }
+.hstat .val.gold   { color: var(--gold);    text-shadow: 0 0 12px var(--gold-glow); }
+.hstat-group { display: flex; gap: 12px; }
+
+#progress-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 130px; max-width: 170px; margin: 0 4px; }
+.progress-lbl { display: flex; justify-content: space-between; font-size: 7px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+.progress-lbl span { color: var(--text); }
+#progress-track { height: 3px; background: var(--surface3); border-radius: 2px; position: relative; }
+#progress-fill {
+  height: 100%; background: linear-gradient(90deg, var(--alive), var(--blue));
+  border-radius: 2px; width: 0%; transition: width 0.9s cubic-bezier(.4,0,.2,1);
+  box-shadow: 0 0 8px var(--alive-glow);
+  position: relative;
+}
+#progress-fill::after {
+  content: ''; position: absolute; right: -1px; top: -2px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--blue); box-shadow: 0 0 8px var(--blue-glow);
+}
+#conn-wrap { margin-left: auto; display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+#conn-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dead); box-shadow: 0 0 6px var(--dead-glow); transition: all 0.4s; }
+#conn-dot.live { background: var(--alive); box-shadow: 0 0 10px var(--alive-glow); animation: pulse-dot 2.5s ease-in-out infinite; }
+@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.35} }
+#conn-label { font-size: 7.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
+
+/* ── Submit bar ── */
+#submit-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 20px;
+  background: rgba(9,21,37,0.95);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  position: relative;
+  z-index: 9;
 }
-#header .logo {
-  font-size: 13px;
-  font-weight: bold;
+#query-input {
+  flex: 1;
+  max-width: 620px;
+  background: var(--surface3);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 7px 14px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+#query-input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(0,212,255,0.1); }
+#query-input::placeholder { color: var(--muted); }
+#submit-btn {
+  background: var(--blue-bg);
+  border: 1px solid rgba(0,212,255,0.4);
+  border-radius: 6px;
   color: var(--blue);
-  letter-spacing: 2px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: bold;
+  letter-spacing: 1.5px;
+  padding: 7px 18px;
+  cursor: pointer;
   text-transform: uppercase;
+  transition: all 0.2s;
   white-space: nowrap;
 }
-.hstat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 60px;
-}
-.hstat .val {
-  font-size: 20px;
-  font-weight: bold;
-  line-height: 1;
-}
-.hstat .lbl {
-  font-size: 9px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-top: 2px;
-}
-.hstat .val.green  { color: var(--alive); }
-.hstat .val.yellow { color: var(--suspect); }
-.hstat .val.blue   { color: var(--blue); }
-.hstat .val.purple { color: var(--purple); }
-.hstat .val.red    { color: var(--dead); }
+#submit-btn:hover:not(:disabled) { background: rgba(0,212,255,0.14); box-shadow: 0 0 14px rgba(0,212,255,0.2); }
+#submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+#submit-status { font-size: 9px; color: var(--muted); min-width: 200px; transition: color 0.3s; }
+#submit-status.ok  { color: var(--alive); }
+#submit-status.err { color: var(--dead); }
+.submit-hint { font-size: 7.5px; color: var(--muted2); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
 
-.hdivider { width: 1px; height: 36px; background: var(--border); }
+/* ── Layout ── */
+#main { display: flex; flex: 1; overflow: hidden; position: relative; }
 
-#conn-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--dead); margin-left: auto; flex-shrink: 0;
-  transition: background 0.4s;
-}
-#conn-dot.live { background: var(--alive); animation: pulse-dot 2s ease-in-out infinite; }
-@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.5} }
-
-/* ── Main layout ── */
-#main {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-}
-
-/* ── Left sidebar ── */
+/* ── Left panel ── */
 #left {
-  width: 260px;
-  flex-shrink: 0;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  width: 272px; flex-shrink: 0;
+  background: rgba(9,21,37,0.88);
+  border-right: 1px solid var(--border2);
+  display: flex; flex-direction: column; overflow: hidden;
+  backdrop-filter: blur(10px);
 }
 .panel-title {
-  font-size: 9px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  padding: 10px 14px 6px;
-  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 7px;
+  font-size: 7.5px; color: var(--blue);
+  text-transform: uppercase; letter-spacing: 2px;
+  padding: 9px 13px 8px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
-#node-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+.panel-title-accent { width: 2px; height: 10px; border-radius: 1px; flex-shrink: 0; background: var(--blue); box-shadow: 0 0 6px var(--blue-glow); }
+.panel-title-count { margin-left: auto; color: var(--muted); font-size: 8px; }
+
+#node-list { flex: 1; overflow-y: auto; padding: 7px; display: flex; flex-direction: column; gap: 5px; }
 
 .node-card {
-  border-radius: 6px;
-  padding: 9px 11px;
+  border-radius: 7px; padding: 9px 12px;
   background: var(--surface2);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--border);
-  font-size: 11px;
-  line-height: 1.7;
+  border: 1px solid var(--border); border-left: 2px solid var(--border);
+  font-size: 10px; line-height: 1.8;
   transition: border-color 0.3s, background 0.3s;
+  position: relative; overflow: hidden;
 }
-.node-card.alive   { border-left-color: var(--alive); }
-.node-card.suspected { border-left-color: var(--suspect); }
-.node-card.dead    { border-left-color: var(--dead); background: #1a0d0d; }
-.node-card.offline { border-left-color: var(--border); opacity: 0.5; }
+.node-card::after {
+  content: ''; position: absolute; top: 0; right: 0;
+  width: 50%; height: 1px; opacity: 0; transition: opacity 0.3s;
+}
+.node-card.alive   { border-left-color: var(--alive);   background: linear-gradient(120deg, rgba(0,245,160,0.04) 0%, var(--surface2) 55%); }
+.node-card.alive::after { background: linear-gradient(270deg, transparent, var(--alive)); opacity: 0.6; }
+.node-card.suspected { border-left-color: var(--suspect); background: linear-gradient(120deg, rgba(255,184,0,0.05) 0%, var(--surface2) 55%); animation: card-warn 1.6s ease-in-out infinite; }
+@keyframes card-warn { 0%,100%{border-left-color:var(--suspect)} 50%{border-left-color:#806000} }
+.node-card.dead    { border-left-color: var(--dead);    background: linear-gradient(120deg, rgba(255,45,85,0.04) 0%, var(--surface2) 55%); opacity: 0.75; }
+.node-card.offline { opacity: 0.35; }
 
-.nc-header { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
-.nc-id { font-weight: bold; font-size: 12px; }
-.badge {
-  font-size: 9px; font-weight: bold; padding: 1px 5px;
-  border-radius: 8px; text-transform: uppercase; letter-spacing: 0.5px;
-}
-.badge.alive     { background: var(--alive-bg);   color: var(--alive); }
-.badge.suspected { background: var(--suspect-bg); color: var(--suspect); }
-.badge.dead      { background: var(--dead-bg);    color: var(--dead); }
-.badge.offline   { background: var(--surface2);   color: var(--muted); }
+.nc-header { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; }
+.nc-id { font-weight: bold; font-size: 11px; color: var(--text); letter-spacing: 0.5px; }
+.badge { font-size: 7px; font-weight: bold; padding: 2px 6px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.8px; border: 1px solid; }
+.badge.alive     { color: var(--alive);   border-color: rgba(0,245,160,0.4);  background: var(--alive-bg); }
+.badge.suspected { color: var(--suspect); border-color: rgba(255,184,0,0.4);  background: var(--suspect-bg); }
+.badge.dead      { color: var(--dead);    border-color: rgba(255,45,85,0.4);  background: var(--dead-bg); }
+.badge.offline   { color: var(--muted);   border-color: var(--border);        background: transparent; }
+.nc-jobs-badge { margin-left: auto; font-size: 7px; padding: 1px 5px; border-radius: 8px; background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(0,212,255,0.25); }
 
-.nc-row { color: var(--muted); font-size: 10px; }
-.nc-row span { color: var(--text); }
+.nc-row { display: flex; align-items: center; gap: 3px; font-size: 9.5px; color: var(--muted); }
+.nc-key { color: var(--muted2); font-size: 8.5px; }
+.nc-val { color: var(--text); }
+.nc-sep { color: var(--border2); margin: 0 3px; }
+.nc-balance { color: var(--gold) !important; text-shadow: 0 0 8px var(--gold-glow); }
 
-/* ── Graph center ── */
-#graph-wrap {
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-  background: var(--bg);
-}
-svg { width: 100%; height: 100%; }
+/* Reputation bar */
+.rep-wrap { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.rep-bar-bg { flex: 1; height: 3px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
+.rep-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
+.rep-bar-fill.rep-high   { background: linear-gradient(90deg, var(--alive), #00d4ff); box-shadow: 0 0 4px var(--alive-glow); }
+.rep-bar-fill.rep-mid    { background: linear-gradient(90deg, var(--suspect), #ff8c00); }
+.rep-bar-fill.rep-low    { background: var(--dead); }
+.rep-score { font-size: 8px; color: var(--muted); min-width: 24px; text-align: right; }
+.rep-label { font-size: 7px; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; }
 
-.edge { stroke: var(--border); stroke-width: 1.5; transition: stroke 0.3s; }
-.edge.axl { stroke: var(--blue); stroke-opacity: 0.35; stroke-width: 2; }
+/* ── Graph ── */
+#graph-wrap { flex: 1; position: relative; overflow: hidden; background: var(--bg2); }
+#graph-wrap::before {
+  content: ''; position: absolute; inset: 0;
+  background-image: linear-gradient(rgba(22,51,80,0.18) 1px, transparent 1px), linear-gradient(90deg, rgba(22,51,80,0.18) 1px, transparent 1px);
+  background-size: 44px 44px; pointer-events: none; z-index: 0;
+}
+#graph-wrap::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center, transparent 35%, rgba(4,8,15,0.75) 100%);
+  pointer-events: none; z-index: 1;
+}
+svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 
-.node-glow {
-  fill: none;
-  stroke-width: 12;
-  opacity: 0;
-  pointer-events: none;
-}
-.node-glow.suspected { stroke: var(--suspect); animation: glow-pulse 1.2s ease-in-out infinite; }
-@keyframes glow-pulse { 0%,100%{opacity:0} 50%{opacity:0.25} }
+.edge { stroke: var(--border2); stroke-width: 1; opacity: 0.4; }
+.edge.axl { stroke: var(--blue); stroke-width: 1.2; stroke-opacity: 0.2; stroke-dasharray: 8 5; animation: edge-flow 4s linear infinite; }
+@keyframes edge-flow { to { stroke-dashoffset: -52; } }
 
-.node-circle {
-  stroke-width: 2;
-  cursor: pointer;
-  transition: r 0.3s, fill 0.4s, stroke 0.4s;
-}
-.node-circle.alive    { fill: var(--alive-bg);   stroke: var(--alive); }
-.node-circle.suspected{ fill: var(--suspect-bg); stroke: var(--suspect); }
-.node-circle.dead     { fill: var(--dead-bg);    stroke: var(--dead); }
-.node-circle.offline  { fill: var(--surface2);   stroke: var(--border); }
+.node-pulse { fill: none; stroke-width: 1; pointer-events: none; animation: node-pulse-anim 3s ease-in-out infinite; }
+.node-pulse.alive     { stroke: var(--alive); }
+.node-pulse.suspected { stroke: var(--suspect); animation-duration: 1.2s; }
+.node-pulse.dead      { opacity: 0; }
+.node-pulse.offline   { opacity: 0; }
+@keyframes node-pulse-anim { 0%,100%{opacity:0.06;r:38px} 50%{opacity:0.18;r:44px} }
 
-.node-label {
-  fill: var(--text); font-size: 11px; font-family: var(--mono);
-  pointer-events: none; text-anchor: middle; dominant-baseline: middle;
-  font-weight: bold;
-}
-.node-shard {
-  fill: var(--muted); font-size: 9px; font-family: var(--mono);
-  pointer-events: none; text-anchor: middle;
-}
-.node-tasks {
-  fill: var(--blue); font-size: 9px; font-family: var(--mono);
-  pointer-events: none; text-anchor: middle;
-}
+.node-ring { fill: none; stroke-width: 1.5; opacity: 0.25; pointer-events: none; transition: r 0.5s; }
+.node-ring.alive     { stroke: var(--alive); }
+.node-ring.suspected { stroke: var(--suspect); }
+.node-ring.dead      { stroke: var(--dead); opacity: 0.15; }
+.node-ring.offline   { stroke: var(--border2); }
 
-.task-dot {
-  transition: fill 0.4s;
-  opacity: 0.9;
-}
-.task-dot.completed  { fill: var(--alive); }
-.task-dot.in_progress{ fill: var(--suspect); animation: task-pulse 0.8s ease-in-out infinite; }
-.task-dot.pending    { fill: var(--muted); }
-@keyframes task-pulse { 0%,100%{r:4px} 50%{r:6px} }
+.node-glow { fill: none; stroke-width: 22; opacity: 0; pointer-events: none; }
+.node-glow.alive     { stroke: var(--alive);   animation: breathe 3.5s ease-in-out infinite; }
+.node-glow.suspected { stroke: var(--suspect); animation: glow-pulse 1.3s ease-in-out infinite; }
+.node-glow.dead      { stroke: var(--dead);    opacity: 0.06; }
+@keyframes breathe    { 0%,100%{opacity:0.03} 50%{opacity:0.10} }
+@keyframes glow-pulse { 0%,100%{opacity:0}    50%{opacity:0.22} }
 
-/* ── Particle / orbit / ripple styles ── */
-.orbit-dot {
-  pointer-events: none;
-  filter: blur(0.5px);
-}
-.task-particle {
-  pointer-events: none;
-}
-.task-ripple {
-  pointer-events: none;
-}
+.node-circle { stroke-width: 2; cursor: pointer; transition: r 0.3s, fill 0.4s, stroke 0.4s; }
+.node-circle.alive    { fill: rgba(0,245,160,0.08);  stroke: var(--alive);   }
+.node-circle.suspected{ fill: rgba(255,184,0,0.08);  stroke: var(--suspect); }
+.node-circle.dead     { fill: rgba(255,45,85,0.07);  stroke: var(--dead);    }
+.node-circle.offline  { fill: rgba(17,34,56,0.6);    stroke: var(--border2); }
 
-#graph-status {
-  position: absolute;
-  bottom: 10px; left: 12px;
-  font-size: 10px; color: var(--muted);
-  pointer-events: none;
-}
+.node-label { fill: var(--text); font-size: 9.5px; font-family: var(--mono); pointer-events: none; text-anchor: middle; dominant-baseline: middle; font-weight: bold; }
+.node-shard { fill: var(--muted); font-size: 8px; font-family: var(--mono); pointer-events: none; text-anchor: middle; }
+.node-tasks { fill: var(--blue); font-size: 7.5px; font-family: var(--mono); pointer-events: none; text-anchor: middle; }
 
-/* ── Right sidebar ── */
-#right {
-  width: 280px;
-  flex-shrink: 0;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
+.orbit-dot    { pointer-events: none; }
+.task-particle{ pointer-events: none; }
+.task-ripple  { pointer-events: none; }
 
-#event-feed {
-  flex: 1;
-  overflow-y: auto;
-  padding: 6px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 10px;
-  line-height: 1.5;
-}
-.ev-row {
-  padding: 3px 6px;
-  border-radius: 3px;
-  color: var(--muted);
-  word-break: break-word;
-  animation: ev-in 0.3s ease;
-}
-@keyframes ev-in { from { opacity:0; transform: translateX(8px); } to { opacity:1; } }
-.ev-row.ev-dead     { color: var(--dead);    background: #200808; }
-.ev-row.ev-suspect  { color: var(--suspect); background: #1e1500; }
-.ev-row.ev-alive    { color: var(--alive);   background: #071a0e; }
-.ev-row.ev-task     { color: var(--blue);    background: #071320; }
-.ev-row.ev-join     { color: var(--purple);  background: #150d2a; }
+#graph-status { position: absolute; bottom: 13px; left: 14px; font-size: 8.5px; color: var(--muted); pointer-events: none; letter-spacing: 0.5px; z-index: 3; }
 
-#task-panel {
-  border-top: 1px solid var(--border);
-  padding: 8px;
-  max-height: 180px;
-  overflow-y: auto;
+#graph-overlay-tl { position: absolute; top: 13px; left: 14px; display: flex; flex-direction: column; gap: 5px; pointer-events: none; z-index: 3; }
+.ov-pill { font-size: 8px; color: var(--muted); background: rgba(9,21,37,0.75); border: 1px solid var(--border2); border-radius: 4px; padding: 4px 9px; letter-spacing: 0.8px; backdrop-filter: blur(6px); }
+.ov-pill span        { color: var(--blue); font-weight: bold; }
+.ov-pill span.green  { color: var(--alive); }
+.ov-pill span.yellow { color: var(--suspect); }
+.ov-pill span.red    { color: var(--dead); }
+
+#graph-legend { position: absolute; bottom: 13px; right: 14px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; z-index: 3; }
+.legend-row { display: flex; align-items: center; gap: 6px; font-size: 8px; color: var(--muted); }
+.legend-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid; }
+.legend-dot.alive     { border-color: var(--alive);   background: rgba(0,245,160,0.12); }
+.legend-dot.suspected { border-color: var(--suspect); background: rgba(255,184,0,0.12); }
+.legend-dot.dead      { border-color: var(--dead);    background: rgba(255,45,85,0.12); }
+
+/* ── Right panel ── */
+#right { width: 300px; flex-shrink: 0; background: rgba(9,21,37,0.88); border-left: 1px solid var(--border2); display: flex; flex-direction: column; overflow: hidden; backdrop-filter: blur(10px); }
+
+#event-feed { flex: 1; overflow-y: auto; padding: 5px 7px; display: flex; flex-direction: column; gap: 1px; font-size: 9px; line-height: 1.55; }
+.ev-row { display: flex; gap: 7px; align-items: flex-start; padding: 4px 8px; border-radius: 3px; border-left: 2px solid transparent; animation: ev-in 0.2s ease; word-break: break-word; }
+@keyframes ev-in { from{opacity:0;transform:translateX(5px)} to{opacity:1;transform:translateX(0)} }
+.ev-time { color: var(--muted2); font-size: 7.5px; flex-shrink: 0; padding-top: 1px; font-variant-numeric: tabular-nums; }
+.ev-icon { flex-shrink: 0; font-size: 9px; }
+.ev-msg  { flex: 1; color: var(--muted); }
+.ev-row.ev-dead    { border-left-color: var(--dead);    background: rgba(255,45,85,0.06);   } .ev-row.ev-dead    .ev-msg { color: var(--dead); }
+.ev-row.ev-suspect { border-left-color: var(--suspect); background: rgba(255,184,0,0.05);   } .ev-row.ev-suspect .ev-msg { color: var(--suspect); }
+.ev-row.ev-alive   { border-left-color: var(--alive);   background: rgba(0,245,160,0.04);   } .ev-row.ev-alive   .ev-msg { color: var(--alive); }
+.ev-row.ev-task    { border-left-color: var(--blue);    background: rgba(0,212,255,0.04);   } .ev-row.ev-task    .ev-msg { color: var(--blue); }
+.ev-row.ev-join    { border-left-color: var(--purple);  background: rgba(181,123,255,0.04); } .ev-row.ev-join    .ev-msg { color: var(--purple); }
+.ev-row.ev-economy { border-left-color: var(--gold);    background: rgba(245,197,66,0.05);  } .ev-row.ev-economy .ev-msg { color: var(--gold); }
+
+/* Task panel */
+#task-panel { border-top: 1px solid var(--border); max-height: 230px; overflow-y: auto; flex-shrink: 0; }
+#task-panel-inner { padding: 5px 7px; display: flex; flex-direction: column; gap: 3px; }
+
+.task-card {
+  border-radius: 5px; padding: 5px 8px;
+  background: var(--surface2); border: 1px solid var(--border);
+  transition: background 0.25s, border-color 0.25s;
 }
-.task-row {
-  display: flex; align-items: center; gap: 6px;
-  padding: 2px 0; font-size: 10px;
-  border-bottom: 1px solid var(--surface2);
-}
-.tdot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
-.tdot.completed  { background: var(--alive); }
-.tdot.in_progress{ background: var(--suspect); }
+.task-card:hover { background: var(--surface3); border-color: var(--border2); }
+.task-card.in_progress { border-color: rgba(255,184,0,0.2); }
+.task-card.completed   { border-color: rgba(0,245,160,0.15); }
+
+.task-row { display: flex; align-items: center; gap: 7px; font-size: 9px; }
+.tdot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.tdot.completed  { background: var(--alive);   box-shadow: 0 0 5px var(--alive-glow); }
+.tdot.in_progress{ background: var(--suspect); box-shadow: 0 0 5px var(--suspect-glow); animation: dot-beat 0.9s ease-in-out infinite; }
 .tdot.pending    { background: var(--muted); }
-.tid { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
-.tshard { color: var(--muted); font-size: 9px; }
-.tenc { font-size: 8px; padding: 1px 3px; border-radius: 2px; flex-shrink: 0; background: #3b82f6; color: #fff; font-weight: 600; }
-.tenc.thr { background: #f59e0b; color: #000; }
+@keyframes dot-beat { 0%,100%{transform:scale(1)} 50%{transform:scale(1.6)} }
+.tid { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.tshard { color: var(--blue-dim, #0099c0); font-size: 8px; flex-shrink: 0; }
+.tstatus-icon { font-size: 9px; flex-shrink: 0; }
 
-/* scrollbar */
-::-webkit-scrollbar { width: 4px; }
+.tenc { font-size: 7px; padding: 1px 5px; border-radius: 3px; font-weight: bold; letter-spacing: 0.5px; flex-shrink: 0; text-transform: uppercase; }
+.tenc.enc { background: var(--blue-bg);    color: var(--blue);    border: 1px solid rgba(0,212,255,0.2); }
+.tenc.thr { background: var(--suspect-bg); color: var(--suspect); border: 1px solid rgba(255,184,0,0.2); }
+.tenc.vrf { background: rgba(0,245,160,0.1); color: var(--alive); border: 1px solid rgba(0,245,160,0.25); }
+
+/* Result snippet */
+.task-result {
+  font-size: 8.5px; color: var(--muted); margin-top: 3px;
+  line-height: 1.4; word-break: break-word;
+  border-top: 1px solid var(--border); padding-top: 3px;
+}
+.task-result strong { color: var(--alive); font-weight: normal; }
+
+/* Timing badges */
+.task-timing { display: flex; gap: 5px; margin-top: 3px; }
+.tt-claim { font-size: 7.5px; padding: 1px 5px; border-radius: 3px; background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(0,212,255,0.15); }
+.tt-exec  { font-size: 7.5px; padding: 1px 5px; border-radius: 3px; background: var(--alive-bg); color: var(--alive); border: 1px solid rgba(0,245,160,0.15); }
+.tt-total { font-size: 7.5px; padding: 1px 5px; border-radius: 3px; background: var(--purple-bg); color: var(--purple); border: 1px solid rgba(181,123,255,0.15); }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 2px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 1px; }
+
+/* ── Tooltip ── */
+#tooltip {
+  position: fixed; background: rgba(9,21,37,0.96); border: 1px solid var(--border2);
+  border-radius: 8px; padding: 12px 16px; font-size: 9.5px; pointer-events: none;
+  display: none; z-index: 999; backdrop-filter: blur(16px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5); min-width: 190px;
+}
+.tt-title { color: var(--blue); font-weight: bold; font-size: 11px; margin-bottom: 8px; }
+.tt-badge { display: inline-block; margin-bottom: 8px; }
+.tt-row { display: flex; justify-content: space-between; gap: 18px; color: var(--muted); margin-top: 3px; font-size: 9px; }
+.tt-row span { color: var(--text); font-weight: bold; }
+.tt-sep { height: 1px; background: var(--border); margin: 7px 0; }
 </style>
 </head>
 <body>
+<div id="tooltip"></div>
 
-<!-- Header -->
+<!-- ── Header ── -->
 <div id="header">
-  <div class="logo">⬡ Whisper Network</div>
-  <div class="hdivider"></div>
-  <div class="hstat"><div class="val green" id="h-alive">—</div><div class="lbl">Alive</div></div>
-  <div class="hstat"><div class="val yellow" id="h-suspect">—</div><div class="lbl">Suspect</div></div>
-  <div class="hstat"><div class="val red" id="h-dead">—</div><div class="lbl">Dead</div></div>
-  <div class="hdivider"></div>
-  <div class="hstat"><div class="val blue" id="h-total">—</div><div class="lbl">Tasks</div></div>
-  <div class="hstat"><div class="val green" id="h-done">—</div><div class="lbl">Done</div></div>
-  <div class="hstat"><div class="val yellow" id="h-prog">—</div><div class="lbl">Active</div></div>
-  <div class="hdivider"></div>
-  <div class="hstat"><div class="val purple" id="h-rescued">—</div><div class="lbl">Rescued</div></div>
-  <div class="hstat"><div class="val blue" id="h-mttr">—</div><div class="lbl">MTTR</div></div>
-  <div class="hstat"><div class="val green" id="h-avg">—</div><div class="lbl">Avg/task</div></div>
-  <div id="conn-dot" title="WebSocket connection"></div>
+  <div class="logo-block">
+    <div class="logo-name">⬡ Whisper Network</div>
+    <div class="logo-sub">Trustless P2P AI Compute · Powered by AXL</div>
+  </div>
+  <div class="hbar"></div>
+  <div class="hstat-group">
+    <div class="hstat"><div class="val green"  id="h-alive">—</div><div class="lbl">Alive</div></div>
+    <div class="hstat"><div class="val yellow" id="h-suspect">—</div><div class="lbl">Suspect</div></div>
+    <div class="hstat"><div class="val red"    id="h-dead">—</div><div class="lbl">Dead</div></div>
+  </div>
+  <div class="hbar"></div>
+  <div class="hstat-group">
+    <div class="hstat"><div class="val blue"   id="h-total">—</div><div class="lbl">Jobs</div></div>
+    <div class="hstat"><div class="val green"  id="h-done">—</div><div class="lbl">Done</div></div>
+    <div class="hstat"><div class="val yellow" id="h-prog">—</div><div class="lbl">Active</div></div>
+  </div>
+  <div class="hbar"></div>
+  <div id="progress-wrap">
+    <div class="progress-lbl"><span>Completion</span><span id="progress-pct">0%</span></div>
+    <div id="progress-track"><div id="progress-fill"></div></div>
+    <div class="progress-lbl" style="margin-top:2px"><span id="progress-label">0 / 0 jobs</span></div>
+  </div>
+  <div class="hbar"></div>
+  <div class="hstat-group">
+    <div class="hstat"><div class="val purple" id="h-rescued">—</div><div class="lbl">Rescued</div></div>
+    <div class="hstat"><div class="val blue"   id="h-mttr">—</div><div class="lbl">MTTR</div></div>
+    <div class="hstat"><div class="val green"  id="h-avg">—</div><div class="lbl">Avg/job</div></div>
+    <div class="hstat"><div class="val gold"   id="h-earned">—</div><div class="lbl">AXL Paid</div></div>
+  </div>
+  <div id="conn-wrap">
+    <div id="conn-dot"></div>
+    <div id="conn-label">offline</div>
+  </div>
 </div>
 
-<!-- Main -->
+<!-- ── Submit bar ── -->
+<div id="submit-bar">
+  <input id="query-input" type="text" placeholder="Submit inference query to all 6 shards… (Enter or click Submit)" spellcheck="false" autocomplete="off" />
+  <span class="submit-hint">→ all 6 shards</span>
+  <button id="submit-btn">⊙ Submit</button>
+  <div id="submit-status">no cluster data yet</div>
+</div>
+
+<!-- ── Main ── -->
 <div id="main">
 
-  <!-- Left: node cards -->
   <div id="left">
-    <div class="panel-title">Nodes</div>
+    <div class="panel-title">
+      <div class="panel-title-accent"></div>
+      Compute Nodes
+      <span class="panel-title-count" id="node-count">0 nodes</span>
+    </div>
     <div id="node-list"></div>
   </div>
 
-  <!-- Center: graph -->
   <div id="graph-wrap">
     <svg id="graph"></svg>
-    <div id="graph-status">connecting...</div>
+    <div id="graph-overlay-tl">
+      <div class="ov-pill">AXL MESH · <span id="ov-links">0</span> LINKS</div>
+      <div class="ov-pill">QUORUM · <span id="ov-quorum">—</span></div>
+      <div class="ov-pill">ONLINE · <span class="green" id="ov-alive">0</span> / <span id="ov-total">0</span></div>
+    </div>
+    <div id="graph-status">connecting…</div>
+    <div id="graph-legend">
+      <div class="legend-row"><div class="legend-dot alive"></div>Alive — processing</div>
+      <div class="legend-row"><div class="legend-dot suspected"></div>Suspected — heartbeat late</div>
+      <div class="legend-row"><div class="legend-dot dead"></div>Dead — jobs rescued</div>
+    </div>
   </div>
 
-  <!-- Right: events + tasks -->
   <div id="right">
-    <div class="panel-title">Live Events</div>
+    <div class="panel-title">
+      <div class="panel-title-accent" style="background:var(--purple);box-shadow:0 0 6px var(--purple-glow)"></div>
+      Live Events
+    </div>
     <div id="event-feed"></div>
-    <div class="panel-title" style="border-top:1px solid var(--border)">Recent Tasks</div>
-    <div id="task-panel"></div>
+    <div class="panel-title" style="border-top:1px solid var(--border)">
+      <div class="panel-title-accent" style="background:var(--alive);box-shadow:0 0 6px var(--alive-glow)"></div>
+      Inference Jobs
+      <span class="panel-title-count" id="job-count">0 jobs</span>
+    </div>
+    <div id="task-panel"><div id="task-panel-inner"></div></div>
   </div>
 
 </div>
@@ -334,352 +483,440 @@ svg { width: 100%; height: 100%; }
 <script>
 const socket = io();
 let simulation;
-const nodeMap = {};  // id → d3 datum (preserves x/y across updates)
-
-// ── Task animation state ──────────────────────────────────────────────────────
-const taskStates  = {};   // task_id → {status, nodeId}
-const activeOrbits = {};  // task_id → {nodeId, angle, speed}
-let   animFrameId = null;
+const nodeMap = {};
+const taskStates   = {};
+const activeOrbits = {};
 
 // ── D3 init ───────────────────────────────────────────────────────────────────
 function initSim() {
   const svg = d3.select('#graph');
   const g   = svg.append('g').attr('id','root');
-  svg.call(d3.zoom().scaleExtent([0.25, 4]).on('zoom', e => g.attr('transform', e.transform)));
+  svg.call(d3.zoom().scaleExtent([0.15, 6]).on('zoom', e => g.attr('transform', e.transform)));
   g.append('g').attr('id','edges');
+  g.append('g').attr('id','pulses');
+  g.append('g').attr('id','rings');
   g.append('g').attr('id','glows');
   g.append('g').attr('id','nodes');
   g.append('g').attr('id','labels');
-  g.append('g').attr('id','particles');  // ripples + flying particles
-  g.append('g').attr('id','orbits');     // orbiting in_progress dots
+  g.append('g').attr('id','particles');
+  g.append('g').attr('id','orbits');
 
   const W = document.getElementById('graph-wrap').clientWidth;
   const H = document.getElementById('graph-wrap').clientHeight;
-
   simulation = d3.forceSimulation()
-    .force('link',      d3.forceLink().id(d => d.id).distance(170))
-    .force('charge',    d3.forceManyBody().strength(-450))
+    .force('link',      d3.forceLink().id(d => d.id).distance(185))
+    .force('charge',    d3.forceManyBody().strength(-520))
     .force('center',    d3.forceCenter(W / 2, H / 2))
-    .force('collision', d3.forceCollide(48))
+    .force('collision', d3.forceCollide(52))
     .on('tick', tick);
 
-  // Continuous orbit animation loop
-  function orbitLoop() {
-    updateOrbits();
-    animFrameId = requestAnimationFrame(orbitLoop);
-  }
-  orbitLoop();
+  (function orbitLoop() { updateOrbits(); requestAnimationFrame(orbitLoop); })();
 }
 
 function stClass(s) {
   return ['alive','suspected','dead','offline'].includes(s) ? s : 'offline';
 }
 
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+const tooltip = document.getElementById('tooltip');
+function showTip(evt, d) {
+  const st = stClass(d.status);
+  const m  = d.metrics || {};
+  const stColor = {alive:'var(--alive)',dead:'var(--dead)',suspected:'var(--suspect)'}[st] || 'var(--muted)';
+  const repCls  = d.reputation >= 70 ? 'green' : d.reputation >= 40 ? 'yellow' : 'red';
+  tooltip.innerHTML = `
+    <div class="tt-title">${d.short || d.id.slice(0,8)}</div>
+    <span class="badge ${st} tt-badge">${st.toUpperCase()}</span>
+    <div class="tt-sep"></div>
+    <div class="tt-row">Shard assignment   <span>s-${d.shard_id}</span></div>
+    <div class="tt-row">Debug port         <span>:${d.port}</span></div>
+    <div class="tt-row">AXL peers          <span>${d.up_peers} / ${d.total_peers} up</span></div>
+    <div class="tt-row">Jobs held          <span>${d.tasks_held || 0}</span></div>
+    <div class="tt-sep"></div>
+    <div class="tt-row">Jobs completed     <span style="color:var(--alive)">${m.completed || 0}</span></div>
+    <div class="tt-row">Jobs rescued       <span style="color:var(--purple)">${m.tasks_rescued || 0}</span></div>
+    <div class="tt-row">Avg completion     <span>${m.avg_completion_s != null ? m.avg_completion_s + 's' : '—'}</span></div>
+    <div class="tt-sep"></div>
+    <div class="tt-row">Reputation score   <span class="${repCls}">${d.reputation || 0} / 100</span></div>
+    <div class="tt-row">Balance            <span style="color:var(--gold)">${(d.balance||0).toFixed(3)} AXL</span></div>
+  `;
+  tooltip.style.display = 'block';
+  moveTip(evt);
+}
+function moveTip(evt) {
+  tooltip.style.left = Math.min(evt.pageX + 16, window.innerWidth  - 220) + 'px';
+  tooltip.style.top  = Math.min(evt.pageY - 10, window.innerHeight - 270) + 'px';
+}
+function hideTip() { tooltip.style.display = 'none'; }
+
 // ── Graph update ──────────────────────────────────────────────────────────────
 function updateGraph(data) {
   const W = document.getElementById('graph-wrap').clientWidth;
   const H = document.getElementById('graph-wrap').clientHeight;
 
-  // Merge nodes into nodeMap (preserving positions)
-  const incomingIds = new Set(data.nodes.map(n => n.id));
-  Object.keys(nodeMap).forEach(id => { if (!incomingIds.has(id)) delete nodeMap[id]; });
+  const inIds = new Set(data.nodes.map(n => n.id));
+  Object.keys(nodeMap).forEach(id => { if (!inIds.has(id)) delete nodeMap[id]; });
   data.nodes.forEach(n => {
     if (nodeMap[n.id]) Object.assign(nodeMap[n.id], n);
-    else nodeMap[n.id] = { ...n, x: W/2 + (Math.random()-.5)*180, y: H/2 + (Math.random()-.5)*180 };
+    else nodeMap[n.id] = { ...n, x: W/2+(Math.random()-.5)*200, y: H/2+(Math.random()-.5)*200 };
   });
 
   const nodes = Object.values(nodeMap);
-  const idSet = new Set(nodes.map(n => n.id));
-  const links = data.edges
+  const idSet  = new Set(nodes.map(n => n.id));
+  const links  = data.edges
     .filter(([a,b]) => idSet.has(a) && idSet.has(b))
     .map(([a,b]) => ({ source: a, target: b }));
 
-  // Edges
-  const edgeSel = d3.select('#edges').selectAll('line').data(links, d => d.source.id+'|'+d.target.id);
+  const edgeSel = d3.select('#edges').selectAll('line').data(links, d =>
+    (typeof d.source==='object'?d.source.id:d.source)+'|'+(typeof d.target==='object'?d.target.id:d.target));
   edgeSel.enter().append('line').attr('class','edge axl').merge(edgeSel);
   edgeSel.exit().remove();
 
-  // Glow rings (suspected)
+  const pulseSel = d3.select('#pulses').selectAll('circle').data(nodes, d => d.id);
+  pulseSel.enter().append('circle').attr('r',44).merge(pulseSel).attr('class', d => `node-pulse ${stClass(d.status)}`);
+  pulseSel.exit().remove();
+
+  const ringSel = d3.select('#rings').selectAll('circle').data(nodes, d => d.id);
+  ringSel.enter().append('circle').attr('r',34).merge(ringSel)
+    .attr('class', d => `node-ring ${stClass(d.status)}`)
+    .attr('r', d => 32 + (d.tasks_held||0)*1.5);
+  ringSel.exit().remove();
+
   const glowSel = d3.select('#glows').selectAll('circle').data(nodes, d => d.id);
-  glowSel.enter().append('circle').attr('r', 36)
-    .merge(glowSel)
-    .attr('class', d => `node-glow ${stClass(d.status)}`);
+  glowSel.enter().append('circle').attr('r',32).merge(glowSel).attr('class', d => `node-glow ${stClass(d.status)}`);
   glowSel.exit().remove();
 
-  // Node circles
   const circleSel = d3.select('#nodes').selectAll('circle').data(nodes, d => d.id);
-  circleSel.enter().append('circle').attr('r', 28)
+  circleSel.enter().append('circle').attr('r',26)
     .call(d3.drag()
-      .on('start', (e,d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
-      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
-      .on('end',   (e,d) => { if (!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; })
-    )
-    .merge(circleSel)
-    .attr('class', d => `node-circle ${stClass(d.status)}`);
+      .on('start',(e,d)=>{if(!e.active)simulation.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y;})
+      .on('drag', (e,d)=>{d.fx=e.x;d.fy=e.y;})
+      .on('end',  (e,d)=>{if(!e.active)simulation.alphaTarget(0);d.fx=null;d.fy=null;}))
+    .on('mouseover', showTip).on('mousemove', moveTip).on('mouseout', hideTip)
+    .merge(circleSel).attr('class', d => `node-circle ${stClass(d.status)}`);
   circleSel.exit().remove();
 
-  // Key label (inside circle)
   const lblSel = d3.select('#labels').selectAll('text.node-label').data(nodes, d => d.id);
-  lblSel.enter().append('text').attr('class','node-label').attr('dy', '-5px')
+  lblSel.enter().append('text').attr('class','node-label').attr('dy','-4px')
     .merge(lblSel).text(d => d.short || d.id.slice(0,8));
   lblSel.exit().remove();
 
-  // Shard label
-  const shardSel = d3.select('#labels').selectAll('text.node-shard').data(nodes, d => d.id+'_s');
-  shardSel.enter().append('text').attr('class','node-shard').attr('dy', '7px')
-    .merge(shardSel).text(d => d.shard_id ? `s-${d.shard_id}` : '');
-  shardSel.exit().remove();
+  const shrSel = d3.select('#labels').selectAll('text.node-shard').data(nodes, d => d.id+'_s');
+  shrSel.enter().append('text').attr('class','node-shard').attr('dy','9px')
+    .merge(shrSel).text(d => d.shard_id ? `shard-${d.shard_id}` : '');
+  shrSel.exit().remove();
 
-  // Active tasks badge
-  const taskBadgeSel = d3.select('#labels').selectAll('text.node-tasks').data(nodes, d => d.id+'_t');
-  taskBadgeSel.enter().append('text').attr('class','node-tasks').attr('dy', '18px')
-    .merge(taskBadgeSel).text(d => d.tasks_held > 0 ? `▸${d.tasks_held}` : '');
-  taskBadgeSel.exit().remove();
+  const jbSel = d3.select('#labels').selectAll('text.node-tasks').data(nodes, d => d.id+'_t');
+  jbSel.enter().append('text').attr('class','node-tasks').attr('dy','21px')
+    .merge(jbSel).text(d => d.tasks_held > 0 ? `▸ ${d.tasks_held} job${d.tasks_held>1?'s':''}` : '');
+  jbSel.exit().remove();
 
   simulation.nodes(nodes);
   simulation.force('link').links(links);
-  simulation.alpha(0.15).restart();
+  simulation.alpha(0.12).restart();
 
-  document.getElementById('graph-status').textContent =
-    `${nodes.length} nodes · ${links.length} edges · ${new Date().toLocaleTimeString()}`;
+  const alive = nodes.filter(n=>n.status==='alive').length;
+  document.getElementById('graph-status').textContent = `${nodes.length} nodes · ${links.length} links · ${new Date().toLocaleTimeString()}`;
+  document.getElementById('ov-links').textContent  = links.length;
+  document.getElementById('ov-alive').textContent  = alive;
+  document.getElementById('ov-total').textContent  = nodes.length;
+  document.getElementById('ov-quorum').textContent = nodes.length > 0
+    ? `${alive}/${nodes.length} (${Math.round(alive/nodes.length*100)}%)`
+    : '—';
 }
 
 function tick() {
   d3.select('#edges').selectAll('line')
-    .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-    .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-  d3.select('#glows').selectAll('circle')
-    .attr('cx', d => d.x).attr('cy', d => d.y);
-  d3.select('#nodes').selectAll('circle')
-    .attr('cx', d => d.x).attr('cy', d => d.y);
-  d3.select('#labels').selectAll('text')
-    .attr('x', d => d.x).attr('y', d => d.y);
+    .attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+    .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+  ['#pulses','#rings','#glows','#nodes'].forEach(s =>
+    d3.select(s).selectAll('circle').attr('cx',d=>d.x).attr('cy',d=>d.y));
+  d3.select('#labels').selectAll('text').attr('x',d=>d.x).attr('y',d=>d.y);
 }
 
 // ── Task animations ───────────────────────────────────────────────────────────
-
 function animateTasks(tasks, nodes) {
-  // Build a short-key → full node-id map
-  const nodeByShort = {};
-  nodes.forEach(n => {
-    const key = n.short || n.id.slice(0, 8);
-    nodeByShort[key] = n.id;
-  });
-
-  const taskIdSet = new Set(tasks.map(t => t.task_id));
+  const byShort = {};
+  nodes.forEach(n => { byShort[n.short || n.id.slice(0,8)] = n.id; });
+  const idSet = new Set(tasks.map(t => t.task_id));
 
   tasks.forEach(task => {
-    const execId = nodeByShort[task.leased_by] || null;
+    const execId = byShort[task.leased_by] || null;
     const prev   = taskStates[task.task_id];
-
     if (!prev) {
-      // First time seeing this task
       taskStates[task.task_id] = { status: task.status, nodeId: execId };
-      if (task.status === 'in_progress' && execId) {
-        activeOrbits[task.task_id] = {
-          nodeId: execId,
-          angle:  Math.random() * 2 * Math.PI,
-          speed:  1.2 + Math.random() * 0.8,
-        };
-      }
+      if (task.status === 'in_progress' && execId) addOrbit(task.task_id, execId);
       return;
     }
-
     if (prev.status !== task.status) {
-      if (task.status === 'in_progress' && execId) {
-        spawnParticle(execId);
-        activeOrbits[task.task_id] = {
-          nodeId: execId,
-          angle:  Math.random() * 2 * Math.PI,
-          speed:  1.2 + Math.random() * 0.8,
-        };
-      }
-      if (task.status === 'completed') {
-        const rippleTarget = execId || prev.nodeId;
-        if (rippleTarget) spawnRipple(rippleTarget);
-        delete activeOrbits[task.task_id];
-      }
-      taskStates[task.task_id] = { status: task.status, nodeId: execId || prev.nodeId };
+      if (task.status === 'in_progress' && execId) { spawnParticle(execId); addOrbit(task.task_id, execId); }
+      if (task.status === 'completed') { const t = execId||prev.nodeId; if(t) spawnBurst(t); delete activeOrbits[task.task_id]; }
+      taskStates[task.task_id] = { status: task.status, nodeId: execId||prev.nodeId };
     } else if (task.status === 'in_progress' && execId && !activeOrbits[task.task_id]) {
-      // Orbit entry disappeared (e.g. page reload) — restore it
-      activeOrbits[task.task_id] = {
-        nodeId: execId,
-        angle:  Math.random() * 2 * Math.PI,
-        speed:  1.2 + Math.random() * 0.8,
-      };
+      addOrbit(task.task_id, execId);
     }
   });
-
-  // Remove state for tasks that disappeared
-  Object.keys(taskStates).forEach(id => {
-    if (!taskIdSet.has(id)) {
-      delete taskStates[id];
-      delete activeOrbits[id];
-    }
-  });
+  Object.keys(taskStates).forEach(id => { if (!idSet.has(id)) { delete taskStates[id]; delete activeOrbits[id]; } });
 }
 
+function addOrbit(tid, nid) {
+  activeOrbits[tid] = { nodeId: nid, angle: Math.random()*2*Math.PI, speed: 0.9+Math.random()*0.7, radius: 36+Math.random()*10 };
+}
 function spawnParticle(nodeId) {
-  const node = nodeMap[nodeId];
-  if (!node) return;
-
-  // Spawn from a random direction around the node and fly in
-  const angle  = Math.random() * 2 * Math.PI;
-  const radius = 70 + Math.random() * 60;
-  const sx = node.x + Math.cos(angle) * radius;
-  const sy = node.y + Math.sin(angle) * radius;
-
-  d3.select('#particles').append('circle')
-    .attr('class', 'task-particle')
-    .attr('r', 3.5)
-    .attr('cx', sx).attr('cy', sy)
-    .attr('fill', '#58a6ff')
-    .attr('opacity', 0.95)
-    .transition().duration(550).ease(d3.easeQuadIn)
-      .attr('cx', node.x).attr('cy', node.y)
-      .attr('r', 1).attr('opacity', 0)
-      .remove();
+  const node = nodeMap[nodeId]; if (!node) return;
+  const a = Math.random()*2*Math.PI, r = 85+Math.random()*50;
+  d3.select('#particles').append('circle').attr('r',4.5)
+    .attr('cx', node.x+Math.cos(a)*r).attr('cy', node.y+Math.sin(a)*r)
+    .attr('fill','#00d4ff').attr('opacity',1)
+    .transition().duration(650).ease(d3.easeQuadIn)
+      .attr('cx',node.x).attr('cy',node.y).attr('r',1.5).attr('opacity',0).remove();
 }
-
-function spawnRipple(nodeId) {
-  const node = nodeMap[nodeId];
-  if (!node) return;
-
-  d3.select('#particles').append('circle')
-    .attr('class', 'task-ripple')
-    .attr('cx', node.x).attr('cy', node.y)
-    .attr('r', 30)
-    .attr('fill', 'none')
-    .attr('stroke', '#3fb950')
-    .attr('stroke-width', 2.5)
-    .attr('opacity', 0.85)
-    .transition().duration(800).ease(d3.easeQuadOut)
-      .attr('r', 65)
-      .attr('stroke-width', 0.5)
-      .attr('opacity', 0)
-      .remove();
+function spawnBurst(nodeId) {
+  const node = nodeMap[nodeId]; if (!node) return;
+  [0,200,420].forEach((delay,i) => {
+    d3.select('#particles').append('circle')
+      .attr('cx',node.x).attr('cy',node.y).attr('r',18).attr('fill','none')
+      .attr('stroke','#00f5a0').attr('stroke-width',2-i*0.4).attr('opacity',0)
+      .transition().delay(delay).duration(1000).ease(d3.easeQuadOut)
+        .attr('r',72+i*12).attr('stroke-width',0.2).attr('opacity',0.65)
+        .on('end', function(){d3.select(this).remove();});
+  });
+  d3.select('#particles').append('circle').attr('cx',node.x).attr('cy',node.y)
+    .attr('r',8).attr('fill','#00f5a0').attr('opacity',0.7)
+    .transition().duration(450).ease(d3.easeQuadOut).attr('r',30).attr('opacity',0).remove();
 }
-
 function updateOrbits() {
-  const now    = performance.now() / 1000;
+  const t = performance.now()/1000;
   const orbits = Object.entries(activeOrbits);
-
-  const sel = d3.select('#orbits').selectAll('circle.orbit-dot')
-    .data(orbits, d => d[0]);
-
-  sel.enter().append('circle')
-    .attr('class', 'orbit-dot')
-    .attr('r', 3)
-    .attr('fill', '#d29922')
-    .attr('opacity', 0.85);
-
+  const sel = d3.select('#orbits').selectAll('circle.orbit-dot').data(orbits, d=>d[0]);
+  sel.enter().append('circle').attr('class','orbit-dot').attr('r',3.5).attr('fill','#ffb800').attr('opacity',0.9);
   sel.exit().remove();
-
-  d3.select('#orbits').selectAll('circle.orbit-dot').each(function([taskId, orbit]) {
-    const node = nodeMap[orbit.nodeId];
-    if (!node) return;
-    const a = now * orbit.speed + orbit.angle;
-    d3.select(this)
-      .attr('cx', node.x + Math.cos(a) * 38)
-      .attr('cy', node.y + Math.sin(a) * 38);
+  d3.select('#orbits').selectAll('circle.orbit-dot').each(function([tid,o]){
+    const node = nodeMap[o.nodeId]; if (!node) return;
+    const a = t*o.speed+o.angle;
+    d3.select(this).attr('cx',node.x+Math.cos(a)*o.radius).attr('cy',node.y+Math.sin(a)*o.radius);
   });
 }
 
-// ── Sidebar updates ───────────────────────────────────────────────────────────
+// ── Sidebar ───────────────────────────────────────────────────────────────────
 function updateSidebar(data) {
-  const c = data.cluster;
-
-  // Header stats
+  const c     = data.cluster;
   const nodes = data.nodes;
-  document.getElementById('h-alive').textContent   = nodes.filter(n => n.status==='alive').length;
-  document.getElementById('h-suspect').textContent = nodes.filter(n => n.status==='suspected').length;
-  document.getElementById('h-dead').textContent    = nodes.filter(n => n.status==='dead').length;
+
+  document.getElementById('h-alive').textContent   = nodes.filter(n=>n.status==='alive').length;
+  document.getElementById('h-suspect').textContent = nodes.filter(n=>n.status==='suspected').length;
+  document.getElementById('h-dead').textContent    = nodes.filter(n=>n.status==='dead').length;
   document.getElementById('h-total').textContent   = c.total;
   document.getElementById('h-done').textContent    = c.completed;
   document.getElementById('h-prog').textContent    = c.in_progress;
   document.getElementById('h-rescued').textContent = c.rescued;
-  document.getElementById('h-mttr').textContent    = c.mttr_s != null ? c.mttr_s + 's' : '—';
-  document.getElementById('h-avg').textContent     = c.avg_completion_s != null ? c.avg_completion_s + 's' : '—';
+  document.getElementById('h-mttr').textContent    = c.mttr_s != null ? c.mttr_s+'s' : '—';
+  document.getElementById('h-avg').textContent     = c.avg_completion_s != null ? c.avg_completion_s+'s' : '—';
+  document.getElementById('h-earned').textContent  = c.total_balance != null ? c.total_balance.toFixed(3) : '—';
+
+  const pct = c.total > 0 ? Math.round(c.completed/c.total*100) : 0;
+  document.getElementById('progress-fill').style.width = pct+'%';
+  document.getElementById('progress-pct').textContent  = pct+'%';
+  document.getElementById('progress-label').textContent= `${c.completed} / ${c.total} jobs`;
+  document.getElementById('node-count').textContent    = `${nodes.length} nodes`;
+  document.getElementById('job-count').textContent     = `${c.total} jobs`;
 
   // Node cards
   const list = document.getElementById('node-list');
   list.innerHTML = '';
   nodes.forEach(n => {
-    const st = stClass(n.status);
-    const m  = n.metrics || {};
+    const st  = stClass(n.status);
+    const m   = n.metrics || {};
+    const rep = n.reputation || 0;
+    const repCls = rep >= 70 ? 'rep-high' : rep >= 40 ? 'rep-mid' : 'rep-low';
+    const repLabel = rep === 0 ? 'new' : rep >= 70 ? 'trusted' : rep >= 40 ? 'building' : 'low';
+    const jobsBadge = n.tasks_held > 0
+      ? `<span class="nc-jobs-badge">${n.tasks_held} job${n.tasks_held>1?'s':''}</span>` : '';
+    const avg = m.avg_completion_s != null ? m.avg_completion_s+'s' : '—';
     const el = document.createElement('div');
     el.className = `node-card ${st}`;
     el.innerHTML = `
       <div class="nc-header">
         <span class="nc-id">${n.short || n.id.slice(0,8)}</span>
         <span class="badge ${st}">${st}</span>
+        ${jobsBadge}
       </div>
-      <div class="nc-row">shard <span>s-${n.shard_id}</span> · port <span>${n.port}</span></div>
-      <div class="nc-row">axl <span>${n.up_peers}/${n.total_peers}</span> · holding <span>${n.tasks_held||0}</span></div>
-      <div class="nc-row">done <span>${m.completed||0}</span> · rescued <span>${m.tasks_rescued||0}</span> · avg <span>${m.avg_completion_s != null ? m.avg_completion_s+'s' : '—'}</span></div>
+      <div class="nc-row">
+        <span class="nc-key">shard</span><span class="nc-val">s-${n.shard_id}</span>
+        <span class="nc-sep">·</span>
+        <span class="nc-key">port</span><span class="nc-val">${n.port}</span>
+        <span class="nc-sep">·</span>
+        <span class="nc-key">axl</span><span class="nc-val">${n.up_peers}/${n.total_peers}</span>
+      </div>
+      <div class="nc-row">
+        <span class="nc-key">done</span><span class="nc-val">${m.completed||0}</span>
+        <span class="nc-sep">·</span>
+        <span class="nc-key">rescued</span><span class="nc-val">${m.tasks_rescued||0}</span>
+        <span class="nc-sep">·</span>
+        <span class="nc-key">avg</span><span class="nc-val">${avg}</span>
+      </div>
+      <div class="nc-row">
+        <span class="nc-key">balance</span>
+        <span class="nc-val nc-balance">${(n.balance||0).toFixed(3)} AXL</span>
+      </div>
+      <div class="rep-wrap">
+        <span class="rep-label">rep</span>
+        <div class="rep-bar-bg"><div class="rep-bar-fill ${repCls}" style="width:${rep}%"></div></div>
+        <span class="rep-score">${rep > 0 ? rep : repLabel}</span>
+      </div>
     `;
     list.appendChild(el);
   });
+
+  // Update submit status when cluster first available
+  const aliveCount = nodes.filter(n=>n.status==='alive').length;
+  const statusEl = document.getElementById('submit-status');
+  if (statusEl.textContent === 'no cluster data yet') {
+    statusEl.textContent = aliveCount > 0
+      ? `${aliveCount} nodes ready · enter a query`
+      : 'no alive nodes detected';
+  }
 }
 
 // ── Event feed ────────────────────────────────────────────────────────────────
-const MAX_EVENTS = 60;
+const MAX_EVENTS = 80;
+const shownEvents = new Set();
+const EV_ICONS = { 'ev-dead':'✕', 'ev-suspect':'⚠', 'ev-alive':'✓', 'ev-task':'⊙', 'ev-join':'+', 'ev-economy':'⊕' };
+
 function updateEvents(events) {
   const feed = document.getElementById('event-feed');
-  const shown = new Set([...feed.querySelectorAll('.ev-row')].map(el => el.dataset.key));
-  let added = 0;
-
   events.slice(0, MAX_EVENTS).forEach(ev => {
-    if (shown.has(ev)) return;
-    const el = document.createElement('div');
+    if (shownEvents.has(ev)) return;
+    shownEvents.add(ev);
+    const el  = document.createElement('div');
     el.className = 'ev-row';
-    el.dataset.key = ev;
-    // Classify by content for colour coding
-    if (/DEAD|confirmed dead/i.test(ev))          el.classList.add('ev-dead');
-    else if (/SUSPECTED|suspect/i.test(ev))       el.classList.add('ev-suspect');
-    else if (/alive|recovered|revived|joined/i.test(ev)) el.classList.add('ev-alive');
-    else if (/completed|claimed|task/i.test(ev))  el.classList.add('ev-task');
-    else if (/join/i.test(ev))                    el.classList.add('ev-join');
-    el.textContent = ev;
+    let cls = '';
+    if      (/DEAD|confirmed dead/i.test(ev))              cls = 'ev-dead';
+    else if (/SUSPECTED|suspect/i.test(ev))                cls = 'ev-suspect';
+    else if (/alive|recovered|revived|joined/i.test(ev))   cls = 'ev-alive';
+    else if (/AXL|earned|\+0\.\d+ AXL/i.test(ev))         cls = 'ev-economy';
+    else if (/completed|claimed|task|rescued/i.test(ev))   cls = 'ev-task';
+    else if (/join/i.test(ev))                             cls = 'ev-join';
+    if (cls) el.classList.add(cls);
+    const now  = new Date();
+    const ts   = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+    el.innerHTML = `<span class="ev-time">${ts}</span><span class="ev-icon">${EV_ICONS[cls]||'·'}</span><span class="ev-msg">${ev}</span>`;
     feed.insertBefore(el, feed.firstChild);
-    added++;
   });
-
-  // Trim overflow
   while (feed.children.length > MAX_EVENTS) feed.removeChild(feed.lastChild);
 }
 
 // ── Task list ─────────────────────────────────────────────────────────────────
 function updateTaskList(tasks) {
-  const panel = document.getElementById('task-panel');
+  const panel = document.getElementById('task-panel-inner');
   panel.innerHTML = '';
-  const sorted = [...tasks].sort((a,b) => (b.version||0) - (a.version||0)).slice(0, 30);
+  const sorted = [...tasks].sort((a,b) => (b.version||0)-(a.version||0)).slice(0, 30);
+
   sorted.forEach(t => {
-    const el = document.createElement('div');
-    el.className = 'task-row';
+    const card = document.createElement('div');
+    card.className = `task-card ${t.status}`;
+
+    // Badges
     const encBadge = t.threshold_t > 0
       ? `<div class="tenc thr">${t.threshold_t}-of-n</div>`
-      : t.encrypted
-        ? `<div class="tenc">ENC</div>`
-        : '';
-    el.innerHTML = `
-      <div class="tdot ${t.status}"></div>
-      <div class="tid">${t.task_id}</div>
-      <div class="tshard">s${t.shard_id}</div>
-      ${encBadge}
+      : t.encrypted ? `<div class="tenc enc">enc</div>` : '';
+    const vrfBadge = t.result_hash
+      ? `<div class="tenc vrf" title="commitment: ${t.commitment||'?'} · result hash: ${t.result_hash}">✓ VRF</div>`
+      : '';
+    const icon = t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '↻' : '…';
+
+    // Latency waterfall
+    let timingHtml = '';
+    if (t.created_at) {
+      const claimDelay = t.claimed_at   ? (t.claimed_at   - t.created_at).toFixed(1) : null;
+      const execTime   = (t.claimed_at && t.completed_at) ? (t.completed_at - t.claimed_at).toFixed(1) : null;
+      const total      = t.completed_at ? (t.completed_at - t.created_at).toFixed(1) : null;
+      if (claimDelay || execTime) {
+        timingHtml = `<div class="task-timing">` +
+          (claimDelay ? `<span class="tt-claim" title="time to claim">claim +${claimDelay}s</span>` : '') +
+          (execTime   ? `<span class="tt-exec"  title="execution time">exec +${execTime}s</span>`   : '') +
+          (total      ? `<span class="tt-total" title="total wall time">total ${total}s</span>`       : '') +
+          `</div>`;
+      }
+    }
+
+    // Result snippet
+    let resultHtml = '';
+    if (t.status === 'completed' && t.result) {
+      const snippet = t.result.length > 110 ? t.result.slice(0, 110) + '…' : t.result;
+      resultHtml = `<div class="task-result"><strong>↳</strong> ${snippet}</div>`;
+    }
+
+    card.innerHTML = `
+      <div class="task-row">
+        <div class="tdot ${t.status}"></div>
+        <div class="tid" title="${t.task_id}">${t.task_id.slice(0,14)}…</div>
+        <div class="tshard">s${t.shard_id}</div>
+        <div class="tstatus-icon">${icon}</div>
+        ${encBadge}${vrfBadge}
+      </div>
+      ${timingHtml}
+      ${resultHtml}
     `;
-    panel.appendChild(el);
+    panel.appendChild(card);
   });
 }
 
-// ── Socket events ─────────────────────────────────────────────────────────────
+// ── Submit form ───────────────────────────────────────────────────────────────
+async function submitQuery() {
+  const input  = document.getElementById('query-input');
+  const btn    = document.getElementById('submit-btn');
+  const status = document.getElementById('submit-status');
+  const query  = input.value.trim();
+  if (!query) return;
+
+  btn.disabled = true;
+  status.className = '';
+  status.textContent = '⊙ submitting to 6 shards…';
+
+  try {
+    const resp = await fetch('/api/submit', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ query }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      const n = data.submitted.length;
+      status.className = 'ok';
+      status.textContent = `✓ submitted to ${n} shard${n!==1?'s':''} — watch the graph`;
+      input.value = '';
+      setTimeout(() => {
+        if (status.className === 'ok') {
+          status.className = '';
+          status.textContent = 'ready — enter another query';
+        }
+      }, 4000);
+    } else {
+      status.className = 'err';
+      status.textContent = `✗ ${data.error || 'submission failed'}`;
+    }
+  } catch (e) {
+    status.className = 'err';
+    status.textContent = `✗ ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('submit-btn').addEventListener('click', submitQuery);
+document.getElementById('query-input').addEventListener('keydown', e => { if (e.key==='Enter') submitQuery(); });
+
+// ── Socket ────────────────────────────────────────────────────────────────────
 socket.on('connect', () => {
-  document.getElementById('conn-dot').className = 'live';
-  document.getElementById('graph-status').textContent = 'connected — waiting for data...';
+  document.getElementById('conn-dot').className    = 'live';
+  document.getElementById('conn-label').textContent = 'live';
+  document.getElementById('graph-status').textContent = 'connected — awaiting data';
 });
 socket.on('disconnect', () => {
-  document.getElementById('conn-dot').className = '';
-  document.getElementById('graph-status').textContent = 'disconnected — reconnecting...';
+  document.getElementById('conn-dot').className    = '';
+  document.getElementById('conn-label').textContent = 'offline';
+  document.getElementById('graph-status').textContent = 'disconnected — reconnecting…';
 });
 socket.on('update', data => {
   updateGraph(data);
