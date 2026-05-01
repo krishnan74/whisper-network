@@ -75,11 +75,18 @@ trap cleanup EXIT INT TERM
 
 mkdir -p logs data
 
+# Per-node capabilities and prices — creates a visible agent marketplace
+# Nodes 1/4=search, 2/5=summarize, 3/6=reason with backup coverage for resilience
+NODE_CAPS=("" "search" "summarize" "reason" "search" "summarize" "reason")
+NODE_PRICE=("" "0.010" "0.012" "0.015" "0.009" "0.011" "0.013")
+
 echo "Starting 6 AXL + whisper nodes..."
 for i in 1 2 3 4 5 6; do
     API_PORT=$((9001 + i))
     DEBUG_PORT=$((8887 + i))
-    echo "  node-${i}: AXL api_port=${API_PORT}  whisper debug=:${DEBUG_PORT}"
+    CAPS="${NODE_CAPS[$i]}"
+    PRICE="${NODE_PRICE[$i]}"
+    echo "  node-${i}: AXL api_port=${API_PORT}  whisper debug=:${DEBUG_PORT}  caps=${CAPS}  price=${PRICE} AXL"
 
     "${AXL_BIN}" -config "axl-local/node-config-${i}.json" \
         > "logs/axl-${i}.log" 2>&1 &
@@ -99,6 +106,8 @@ for i in 1 2 3 4 5 6; do
         --heartbeat-interval  "${HEARTBEAT_INTERVAL}" \
         --suspect-after       "${SUSPECT_AFTER}" \
         --key-file            "keys/private-${i}.pem" \
+        --capabilities        "${CAPS}" \
+        --price-axl           "${PRICE}" \
         --log-level           "${LOG_LEVEL}" \
         > "logs/whisper-${i}.log" 2>&1 &
     PIDS+=($!)

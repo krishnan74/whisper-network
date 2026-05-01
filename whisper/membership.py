@@ -43,6 +43,8 @@ class PeerInfo:
     shard_id:    Optional[int]  = None  # home shard, learned from heartbeats
     enc_pubkey:          Optional[str]   = None   # X25519 pubkey for payload encryption
     reported_lease_duration: Optional[float] = None  # lease duration this peer advertises
+    capabilities: list          = field(default_factory=list)  # e.g. ["search","summarize"]
+    price_axl:   float          = 0.01  # AXL per job this peer charges
 
 
 class MembershipLayer:
@@ -80,6 +82,9 @@ class MembershipLayer:
         self.our_enc_pubkey: Optional[str] = None
         # Our current lease duration, advertised in heartbeats for convergence
         self.our_lease_duration: float = 30.0
+        # Capabilities and price advertised in every heartbeat
+        self.our_capabilities: list[str] = []
+        self.our_price_axl:    float     = 0.01
 
         self._running = False
 
@@ -233,13 +238,15 @@ class MembershipLayer:
         logger.info("broadcast node_join to %d AXL peer(s)", len(targets))
 
     def _send_join_to(self, peer_key: str, hops: int = 1):
-        """Send a node_join directly to one peer, carrying enc_pubkey if available."""
+        """Send a node_join directly to one peer, carrying enc_pubkey and capabilities."""
         msg: dict = {
-            "type":     "node_join",
-            "msg_id":   str(uuid.uuid4()),
-            "from":     self.our_key,
-            "shard_id": self.our_shard_id,
-            "hops":     hops,
+            "type":         "node_join",
+            "msg_id":       str(uuid.uuid4()),
+            "from":         self.our_key,
+            "shard_id":     self.our_shard_id,
+            "hops":         hops,
+            "capabilities": self.our_capabilities,
+            "price_axl":    self.our_price_axl,
         }
         if self.our_enc_pubkey:
             msg["enc_pubkey"] = self.our_enc_pubkey
@@ -296,6 +303,8 @@ class MembershipLayer:
             "known_peers":    known,
             "hops":           GOSSIP_HOPS,
             "lease_duration": self.our_lease_duration,
+            "capabilities":   self.our_capabilities,
+            "price_axl":      self.our_price_axl,
         }
         if self.our_enc_pubkey:
             msg["enc_pubkey"] = self.our_enc_pubkey
@@ -362,6 +371,10 @@ class MembershipLayer:
                 peer.shard_id = int(msg["shard_id"])
             if msg.get("enc_pubkey"):
                 peer.enc_pubkey = msg["enc_pubkey"]
+            if msg.get("capabilities") is not None:
+                peer.capabilities = list(msg["capabilities"])
+            if msg.get("price_axl") is not None:
+                peer.price_axl = float(msg["price_axl"])
         hops = msg.get("hops", 0) - 1
         if hops > 0:
             self._fanout({**msg, "hops": hops})
@@ -390,6 +403,10 @@ class MembershipLayer:
                 peer.enc_pubkey = msg["enc_pubkey"]
             if msg.get("lease_duration"):
                 peer.reported_lease_duration = float(msg["lease_duration"])
+            if msg.get("capabilities") is not None:
+                peer.capabilities = list(msg["capabilities"])
+            if msg.get("price_axl") is not None:
+                peer.price_axl = float(msg["price_axl"])
 
             if peer.status == PeerStatus.SUSPECTED:
                 peer.status = PeerStatus.ALIVE

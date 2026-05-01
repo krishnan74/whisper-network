@@ -268,17 +268,19 @@ def _build_payload() -> dict:
         peers    = state.get("peers", {})
 
         nodes.append({
-            "id":          our_key,
-            "short":       state.get("key_short", our_key[:8]),
-            "shard_id":    state.get("shard_id", 0),
-            "port":        port,
-            "status":      "alive",
-            "up_peers":    axl_mesh.get("up_peers", 0),
-            "total_peers": axl_mesh.get("total_peers", 0),
-            "metrics":     metrics,
-            "tasks_held":  len([t for t in state.get("tasks", {}).values()
-                                if t.get("status") == "in_progress"
-                                and t.get("leased_by", "")[:8] == our_key[:8]]),
+            "id":           our_key,
+            "short":        state.get("key_short", our_key[:8]),
+            "shard_id":     state.get("shard_id", 0),
+            "port":         port,
+            "status":       "alive",
+            "up_peers":     axl_mesh.get("up_peers", 0),
+            "total_peers":  axl_mesh.get("total_peers", 0),
+            "metrics":      metrics,
+            "tasks_held":   len([t for t in state.get("tasks", {}).values()
+                                 if t.get("status") == "in_progress"
+                                 and t.get("leased_by", "")[:8] == our_key[:8]]),
+            "capabilities": state.get("capabilities", []),
+            "price_axl":    state.get("price_axl", 0.01),
         })
 
         for peer_info in peers.values():

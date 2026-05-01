@@ -234,6 +234,18 @@ body {
 .nc-sep { color: var(--border2); margin: 0 3px; }
 .nc-balance { color: var(--gold) !important; text-shadow: 0 0 8px var(--gold-glow); }
 
+/* Capability badges */
+.nc-caps { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.cap-badge {
+  font-size: 8px; font-weight: bold; padding: 1px 6px; border-radius: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  border: 1px solid rgba(0,212,255,0.35); background: rgba(0,212,255,0.08); color: var(--blue);
+}
+.cap-badge.search   { border-color: rgba(0,212,255,0.4);  background: rgba(0,212,255,0.1);  color: var(--blue); }
+.cap-badge.summarize{ border-color: rgba(181,123,255,0.4);background: rgba(181,123,255,0.1);color: var(--purple); }
+.cap-badge.reason   { border-color: rgba(0,245,160,0.4);  background: rgba(0,245,160,0.1);  color: var(--alive); }
+.nc-price { color: var(--gold); font-size: 9px; }
+
 /* Kill / Revive buttons */
 .nc-kill-btn {
   margin-left: auto; font-size: 8.5px; padding: 2px 8px; border-radius: 4px;
@@ -748,6 +760,10 @@ function updateSidebar(data) {
     const jobsBadge = n.tasks_held > 0
       ? `<span class="nc-jobs-badge">${n.tasks_held} job${n.tasks_held>1?'s':''}</span>` : '';
     const avg = m.avg_completion_s != null ? m.avg_completion_s+'s' : '—';
+    const caps = (n.capabilities || []);
+    const capHtml = caps.length > 0
+      ? `<div class="nc-caps">${caps.map(c => `<span class="cap-badge ${c}">${c}</span>`).join('')}<span class="nc-price">${(n.price_axl||0.01).toFixed(3)} AXL/job</span></div>`
+      : '';
     const canKill   = st === 'alive';
     const canRevive = (st === 'dead' || st === 'offline') && killedPorts.has(n.port);
     const killBtn   = canKill
@@ -781,6 +797,7 @@ function updateSidebar(data) {
         <span class="nc-key">balance</span>
         <span class="nc-val nc-balance">${(n.balance||0).toFixed(3)} AXL</span>
       </div>
+      ${capHtml}
       <div class="rep-wrap">
         <span class="rep-label">reputation</span>
         <div class="rep-bar-bg"><div class="rep-bar-fill ${repCls}" style="width:${rep}%"></div></div>

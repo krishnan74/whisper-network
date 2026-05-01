@@ -94,6 +94,8 @@ class WhisperNode:
         heartbeat_interval: float = 2.0,
         suspect_after:      float = 10.0,
         key_file:           Optional[str] = None,
+        capabilities:       Optional[list] = None,
+        price_axl:          float = 0.01,
     ):
         self.debug_port  = debug_port
 
@@ -124,6 +126,8 @@ class WhisperNode:
         if self._cipher.enabled:
             self.membership.our_enc_pubkey = self._cipher.x25519_pubkey_hex
         self.membership.our_lease_duration = lease_duration
+        self.membership.our_capabilities   = list(capabilities) if capabilities else []
+        self.membership.our_price_axl      = price_axl
 
         self.ledger      = TaskLedger(
             transport        = self.transport,
@@ -490,6 +494,8 @@ class WhisperNode:
             "peers":           peers,
             "tasks":           tasks,
             "events":          events,
+            "capabilities":    self.membership.our_capabilities,
+            "price_axl":       self.membership.our_price_axl,
         }
 
 
@@ -517,6 +523,10 @@ def main():
                         help="Silence threshold before marking peer SUSPECTED")
     parser.add_argument("--key-file",            default=None,
                         help="Path to ed25519 PEM private key for ledger_update signing")
+    parser.add_argument("--capabilities",        default="",
+                        help="Comma-separated agent capabilities e.g. search,summarize,reason")
+    parser.add_argument("--price-axl",           type=float, default=0.01,
+                        help="AXL price per completed job advertised to the market")
     parser.add_argument("--log-level",           default="INFO")
     args = parser.parse_args()
 
@@ -525,6 +535,7 @@ def main():
         format  = "%(asctime)s [%(threadName)s] %(levelname)s %(name)s: %(message)s",
     )
 
+    caps = [c.strip() for c in args.capabilities.split(",") if c.strip()]
     node = WhisperNode(
         api_base            = args.api_base,
         shard_id            = args.shard_id,
@@ -537,6 +548,8 @@ def main():
         heartbeat_interval  = args.heartbeat_interval,
         suspect_after       = args.suspect_after,
         key_file            = args.key_file,
+        capabilities        = caps,
+        price_axl           = args.price_axl,
     )
     node.start()
 
