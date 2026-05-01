@@ -89,16 +89,16 @@ body {
 
 .logo-block { display: flex; flex-direction: column; margin-right: 20px; flex-shrink: 0; }
 .logo-name {
-  font-size: 13px; font-weight: bold; color: var(--blue);
+  font-size: 15px; font-weight: bold; color: var(--blue);
   letter-spacing: 3px; text-transform: uppercase; line-height: 1;
   text-shadow: 0 0 24px var(--blue-glow);
 }
-.logo-sub { font-size: 7.5px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-top: 3px; }
+.logo-sub { font-size: 9px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-top: 3px; }
 
 .hbar { width: 1px; height: 28px; background: var(--border2); margin: 0 16px; flex-shrink: 0; }
 .hstat { display: flex; flex-direction: column; align-items: center; min-width: 46px; }
-.hstat .val { font-size: 17px; font-weight: bold; line-height: 1; font-variant-numeric: tabular-nums; transition: color 0.4s; }
-.hstat .lbl { font-size: 7px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 2px; }
+.hstat .val { font-size: 20px; font-weight: bold; line-height: 1; font-variant-numeric: tabular-nums; transition: color 0.4s; }
+.hstat .lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 2px; }
 .hstat .val.green  { color: var(--alive);   text-shadow: 0 0 12px var(--alive-glow); }
 .hstat .val.yellow { color: var(--suspect); text-shadow: 0 0 12px var(--suspect-glow); }
 .hstat .val.red    { color: var(--dead);    text-shadow: 0 0 12px var(--dead-glow); }
@@ -108,7 +108,7 @@ body {
 .hstat-group { display: flex; gap: 12px; }
 
 #progress-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 130px; max-width: 170px; margin: 0 4px; }
-.progress-lbl { display: flex; justify-content: space-between; font-size: 7px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+.progress-lbl { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
 .progress-lbl span { color: var(--text); }
 #progress-track { height: 3px; background: var(--surface3); border-radius: 2px; position: relative; }
 #progress-fill {
@@ -126,7 +126,7 @@ body {
 #conn-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dead); box-shadow: 0 0 6px var(--dead-glow); transition: all 0.4s; }
 #conn-dot.live { background: var(--alive); box-shadow: 0 0 10px var(--alive-glow); animation: pulse-dot 2.5s ease-in-out infinite; }
 @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.35} }
-#conn-label { font-size: 7.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
+#conn-label { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
 
 /* ── Submit bar ── */
 #submit-bar {
@@ -149,7 +149,7 @@ body {
   padding: 7px 14px;
   color: var(--text);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 13px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -161,7 +161,7 @@ body {
   border-radius: 6px;
   color: var(--blue);
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: bold;
   letter-spacing: 1.5px;
   padding: 7px 18px;
@@ -172,10 +172,10 @@ body {
 }
 #submit-btn:hover:not(:disabled) { background: rgba(0,212,255,0.14); box-shadow: 0 0 14px rgba(0,212,255,0.2); }
 #submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-#submit-status { font-size: 9px; color: var(--muted); min-width: 200px; transition: color 0.3s; }
+#submit-status { font-size: 11px; color: var(--muted); min-width: 200px; transition: color 0.3s; }
 #submit-status.ok  { color: var(--alive); }
 #submit-status.err { color: var(--dead); }
-.submit-hint { font-size: 7.5px; color: var(--muted2); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+.submit-hint { font-size: 9.5px; color: var(--muted2); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
 
 /* ── Layout ── */
 #main { display: flex; flex: 1; overflow: hidden; position: relative; }
@@ -190,13 +190,13 @@ body {
 }
 .panel-title {
   display: flex; align-items: center; gap: 7px;
-  font-size: 7.5px; color: var(--blue);
+  font-size: 10px; color: var(--blue);
   text-transform: uppercase; letter-spacing: 2px;
   padding: 9px 13px 8px; border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .panel-title-accent { width: 2px; height: 10px; border-radius: 1px; flex-shrink: 0; background: var(--blue); box-shadow: 0 0 6px var(--blue-glow); }
-.panel-title-count { margin-left: auto; color: var(--muted); font-size: 8px; }
+.panel-title-count { margin-left: auto; color: var(--muted); font-size: 10px; }
 
 #node-list { flex: 1; overflow-y: auto; padding: 7px; display: flex; flex-direction: column; gap: 5px; }
 
@@ -220,16 +220,16 @@ body {
 .node-card.offline { opacity: 0.35; }
 
 .nc-header { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; }
-.nc-id { font-weight: bold; font-size: 11px; color: var(--text); letter-spacing: 0.5px; }
-.badge { font-size: 7px; font-weight: bold; padding: 2px 6px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.8px; border: 1px solid; }
+.nc-id { font-weight: bold; font-size: 13px; color: var(--text); letter-spacing: 0.5px; }
+.badge { font-size: 9px; font-weight: bold; padding: 2px 6px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.8px; border: 1px solid; }
 .badge.alive     { color: var(--alive);   border-color: rgba(0,245,160,0.4);  background: var(--alive-bg); }
 .badge.suspected { color: var(--suspect); border-color: rgba(255,184,0,0.4);  background: var(--suspect-bg); }
 .badge.dead      { color: var(--dead);    border-color: rgba(255,45,85,0.4);  background: var(--dead-bg); }
 .badge.offline   { color: var(--muted);   border-color: var(--border);        background: transparent; }
-.nc-jobs-badge { margin-left: auto; font-size: 7px; padding: 1px 5px; border-radius: 8px; background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(0,212,255,0.25); }
+.nc-jobs-badge { margin-left: auto; font-size: 9px; padding: 1px 5px; border-radius: 8px; background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(0,212,255,0.25); }
 
-.nc-row { display: flex; align-items: center; gap: 3px; font-size: 9.5px; color: var(--muted); }
-.nc-key { color: var(--muted2); font-size: 8.5px; }
+.nc-row { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
+.nc-key { color: var(--muted2); font-size: 10px; }
 .nc-val { color: var(--text); }
 .nc-sep { color: var(--border2); margin: 0 3px; }
 .nc-balance { color: var(--gold) !important; text-shadow: 0 0 8px var(--gold-glow); }
@@ -241,8 +241,8 @@ body {
 .rep-bar-fill.rep-high   { background: linear-gradient(90deg, var(--alive), #00d4ff); box-shadow: 0 0 4px var(--alive-glow); }
 .rep-bar-fill.rep-mid    { background: linear-gradient(90deg, var(--suspect), #ff8c00); }
 .rep-bar-fill.rep-low    { background: var(--dead); }
-.rep-score { font-size: 8px; color: var(--muted); min-width: 24px; text-align: right; }
-.rep-label { font-size: 7px; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; }
+.rep-score { font-size: 10px; color: var(--muted); min-width: 24px; text-align: right; }
+.rep-label { font-size: 9px; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; }
 
 /* ── Graph ── */
 #graph-wrap { flex: 1; position: relative; overflow: hidden; background: var(--bg2); }
@@ -288,25 +288,25 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 .node-circle.dead     { fill: rgba(255,45,85,0.07);  stroke: var(--dead);    }
 .node-circle.offline  { fill: rgba(17,34,56,0.6);    stroke: var(--border2); }
 
-.node-label { fill: var(--text); font-size: 9.5px; font-family: var(--mono); pointer-events: none; text-anchor: middle; dominant-baseline: middle; font-weight: bold; }
-.node-shard { fill: var(--muted); font-size: 8px; font-family: var(--mono); pointer-events: none; text-anchor: middle; }
-.node-tasks { fill: var(--blue); font-size: 7.5px; font-family: var(--mono); pointer-events: none; text-anchor: middle; }
+.node-label { fill: var(--text); font-size: 11px; font-family: var(--mono); pointer-events: none; text-anchor: middle; dominant-baseline: middle; font-weight: bold; }
+.node-shard { fill: var(--muted); font-size: 9.5px; font-family: var(--mono); pointer-events: none; text-anchor: middle; }
+.node-tasks { fill: var(--blue); font-size: 9px; font-family: var(--mono); pointer-events: none; text-anchor: middle; }
 
 .orbit-dot    { pointer-events: none; }
 .task-particle{ pointer-events: none; }
 .task-ripple  { pointer-events: none; }
 
-#graph-status { position: absolute; bottom: 13px; left: 14px; font-size: 8.5px; color: var(--muted); pointer-events: none; letter-spacing: 0.5px; z-index: 3; }
+#graph-status { position: absolute; bottom: 13px; left: 14px; font-size: 10.5px; color: var(--muted); pointer-events: none; letter-spacing: 0.5px; z-index: 3; }
 
 #graph-overlay-tl { position: absolute; top: 13px; left: 14px; display: flex; flex-direction: column; gap: 5px; pointer-events: none; z-index: 3; }
-.ov-pill { font-size: 8px; color: var(--muted); background: rgba(9,21,37,0.75); border: 1px solid var(--border2); border-radius: 4px; padding: 4px 9px; letter-spacing: 0.8px; backdrop-filter: blur(6px); }
+.ov-pill { font-size: 10px; color: var(--muted); background: rgba(9,21,37,0.75); border: 1px solid var(--border2); border-radius: 4px; padding: 4px 9px; letter-spacing: 0.8px; backdrop-filter: blur(6px); }
 .ov-pill span        { color: var(--blue); font-weight: bold; }
 .ov-pill span.green  { color: var(--alive); }
 .ov-pill span.yellow { color: var(--suspect); }
 .ov-pill span.red    { color: var(--dead); }
 
 #graph-legend { position: absolute; bottom: 13px; right: 14px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; z-index: 3; }
-.legend-row { display: flex; align-items: center; gap: 6px; font-size: 8px; color: var(--muted); }
+.legend-row { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted); }
 .legend-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid; }
 .legend-dot.alive     { border-color: var(--alive);   background: rgba(0,245,160,0.12); }
 .legend-dot.suspected { border-color: var(--suspect); background: rgba(255,184,0,0.12); }
@@ -315,11 +315,11 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 /* ── Right panel ── */
 #right { width: 300px; flex-shrink: 0; background: rgba(9,21,37,0.88); border-left: 1px solid var(--border2); display: flex; flex-direction: column; overflow: hidden; backdrop-filter: blur(10px); }
 
-#event-feed { flex: 1; overflow-y: auto; padding: 5px 7px; display: flex; flex-direction: column; gap: 1px; font-size: 9px; line-height: 1.55; }
+#event-feed { flex: 1; overflow-y: auto; padding: 5px 7px; display: flex; flex-direction: column; gap: 1px; font-size: 11px; line-height: 1.55; }
 .ev-row { display: flex; gap: 7px; align-items: flex-start; padding: 4px 8px; border-radius: 3px; border-left: 2px solid transparent; animation: ev-in 0.2s ease; word-break: break-word; }
 @keyframes ev-in { from{opacity:0;transform:translateX(5px)} to{opacity:1;transform:translateX(0)} }
-.ev-time { color: var(--muted2); font-size: 7.5px; flex-shrink: 0; padding-top: 1px; font-variant-numeric: tabular-nums; }
-.ev-icon { flex-shrink: 0; font-size: 9px; }
+.ev-time { color: var(--muted2); font-size: 9.5px; flex-shrink: 0; padding-top: 1px; font-variant-numeric: tabular-nums; }
+.ev-icon { flex-shrink: 0; font-size: 11px; }
 .ev-msg  { flex: 1; color: var(--muted); }
 .ev-row.ev-dead    { border-left-color: var(--dead);    background: rgba(255,45,85,0.06);   } .ev-row.ev-dead    .ev-msg { color: var(--dead); }
 .ev-row.ev-suspect { border-left-color: var(--suspect); background: rgba(255,184,0,0.05);   } .ev-row.ev-suspect .ev-msg { color: var(--suspect); }
@@ -341,24 +341,24 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 .task-card.in_progress { border-color: rgba(255,184,0,0.2); }
 .task-card.completed   { border-color: rgba(0,245,160,0.15); }
 
-.task-row { display: flex; align-items: center; gap: 7px; font-size: 9px; }
+.task-row { display: flex; align-items: center; gap: 7px; font-size: 11px; }
 .tdot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .tdot.completed  { background: var(--alive);   box-shadow: 0 0 5px var(--alive-glow); }
 .tdot.in_progress{ background: var(--suspect); box-shadow: 0 0 5px var(--suspect-glow); animation: dot-beat 0.9s ease-in-out infinite; }
 .tdot.pending    { background: var(--muted); }
 @keyframes dot-beat { 0%,100%{transform:scale(1)} 50%{transform:scale(1.6)} }
 .tid { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
-.tshard { color: var(--blue-dim, #0099c0); font-size: 8px; flex-shrink: 0; }
+.tshard { color: var(--blue-dim, #0099c0); font-size: 10px; flex-shrink: 0; }
 .tstatus-icon { font-size: 9px; flex-shrink: 0; }
 
-.tenc { font-size: 7px; padding: 1px 5px; border-radius: 3px; font-weight: bold; letter-spacing: 0.5px; flex-shrink: 0; text-transform: uppercase; }
+.tenc { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: bold; letter-spacing: 0.5px; flex-shrink: 0; text-transform: uppercase; }
 .tenc.enc { background: var(--blue-bg);    color: var(--blue);    border: 1px solid rgba(0,212,255,0.2); }
 .tenc.thr { background: var(--suspect-bg); color: var(--suspect); border: 1px solid rgba(255,184,0,0.2); }
 .tenc.vrf { background: rgba(0,245,160,0.1); color: var(--alive); border: 1px solid rgba(0,245,160,0.25); }
 
 /* Result snippet */
 .task-result {
-  font-size: 8.5px; color: var(--muted); margin-top: 3px;
+  font-size: 10.5px; color: var(--muted); margin-top: 3px;
   line-height: 1.4; word-break: break-word;
   border-top: 1px solid var(--border); padding-top: 3px;
 }
@@ -366,9 +366,9 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 
 /* Timing badges */
 .task-timing { display: flex; gap: 5px; margin-top: 3px; }
-.tt-claim { font-size: 7.5px; padding: 1px 5px; border-radius: 3px; background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(0,212,255,0.15); }
-.tt-exec  { font-size: 7.5px; padding: 1px 5px; border-radius: 3px; background: var(--alive-bg); color: var(--alive); border: 1px solid rgba(0,245,160,0.15); }
-.tt-total { font-size: 7.5px; padding: 1px 5px; border-radius: 3px; background: var(--purple-bg); color: var(--purple); border: 1px solid rgba(181,123,255,0.15); }
+.tt-claim { font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(0,212,255,0.15); }
+.tt-exec  { font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: var(--alive-bg); color: var(--alive); border: 1px solid rgba(0,245,160,0.15); }
+.tt-total { font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: var(--purple-bg); color: var(--purple); border: 1px solid rgba(181,123,255,0.15); }
 
 /* Scrollbars */
 ::-webkit-scrollbar { width: 2px; }
@@ -378,13 +378,13 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 /* ── Tooltip ── */
 #tooltip {
   position: fixed; background: rgba(9,21,37,0.96); border: 1px solid var(--border2);
-  border-radius: 8px; padding: 12px 16px; font-size: 9.5px; pointer-events: none;
+  border-radius: 8px; padding: 12px 16px; font-size: 11px; pointer-events: none;
   display: none; z-index: 999; backdrop-filter: blur(16px);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5); min-width: 190px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5); min-width: 210px;
 }
-.tt-title { color: var(--blue); font-weight: bold; font-size: 11px; margin-bottom: 8px; }
+.tt-title { color: var(--blue); font-weight: bold; font-size: 13px; margin-bottom: 8px; }
 .tt-badge { display: inline-block; margin-bottom: 8px; }
-.tt-row { display: flex; justify-content: space-between; gap: 18px; color: var(--muted); margin-top: 3px; font-size: 9px; }
+.tt-row { display: flex; justify-content: space-between; gap: 18px; color: var(--muted); margin-top: 3px; font-size: 11px; }
 .tt-row span { color: var(--text); font-weight: bold; }
 .tt-sep { height: 1px; background: var(--border); margin: 7px 0; }
 </style>
@@ -431,9 +431,9 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 
 <!-- ── Submit bar ── -->
 <div id="submit-bar">
-  <input id="query-input" type="text" placeholder="Submit inference query to all 6 shards… (Enter or click Submit)" spellcheck="false" autocomplete="off" />
-  <span class="submit-hint">→ all 6 shards</span>
-  <button id="submit-btn">⊙ Submit</button>
+  <input id="query-input" type="text" placeholder="Type an AI inference query and press Enter — e.g. 'attention mechanism'" spellcheck="false" autocomplete="off" />
+  <span class="submit-hint">→ broadcasts to all 6 shards</span>
+  <button id="submit-btn">⊙ Submit Query</button>
   <div id="submit-status">no cluster data yet</div>
 </div>
 
@@ -452,9 +452,9 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
   <div id="graph-wrap">
     <svg id="graph"></svg>
     <div id="graph-overlay-tl">
-      <div class="ov-pill">AXL MESH · <span id="ov-links">0</span> LINKS</div>
-      <div class="ov-pill">QUORUM · <span id="ov-quorum">—</span></div>
-      <div class="ov-pill">ONLINE · <span class="green" id="ov-alive">0</span> / <span id="ov-total">0</span></div>
+      <div class="ov-pill">AXL MESH · <span id="ov-links">0</span> ACTIVE LINKS</div>
+      <div class="ov-pill">CLUSTER QUORUM · <span id="ov-quorum">—</span></div>
+      <div class="ov-pill">NODES ONLINE · <span class="green" id="ov-alive">0</span> / <span id="ov-total">0</span></div>
     </div>
     <div id="graph-status">connecting…</div>
     <div id="graph-legend">
@@ -746,21 +746,21 @@ function updateSidebar(data) {
         <span class="nc-sep">·</span>
         <span class="nc-key">port</span><span class="nc-val">${n.port}</span>
         <span class="nc-sep">·</span>
-        <span class="nc-key">axl</span><span class="nc-val">${n.up_peers}/${n.total_peers}</span>
+        <span class="nc-key">peers</span><span class="nc-val">${n.up_peers}/${n.total_peers} up</span>
       </div>
       <div class="nc-row">
-        <span class="nc-key">done</span><span class="nc-val">${m.completed||0}</span>
+        <span class="nc-key">completed</span><span class="nc-val">${m.completed||0}</span>
         <span class="nc-sep">·</span>
         <span class="nc-key">rescued</span><span class="nc-val">${m.tasks_rescued||0}</span>
         <span class="nc-sep">·</span>
-        <span class="nc-key">avg</span><span class="nc-val">${avg}</span>
+        <span class="nc-key">avg time</span><span class="nc-val">${avg}</span>
       </div>
       <div class="nc-row">
         <span class="nc-key">balance</span>
         <span class="nc-val nc-balance">${(n.balance||0).toFixed(3)} AXL</span>
       </div>
       <div class="rep-wrap">
-        <span class="rep-label">rep</span>
+        <span class="rep-label">reputation</span>
         <div class="rep-bar-bg"><div class="rep-bar-fill ${repCls}" style="width:${rep}%"></div></div>
         <span class="rep-score">${rep > 0 ? rep : repLabel}</span>
       </div>
@@ -818,10 +818,10 @@ function updateTaskList(tasks) {
 
     // Badges
     const encBadge = t.threshold_t > 0
-      ? `<div class="tenc thr">${t.threshold_t}-of-n</div>`
-      : t.encrypted ? `<div class="tenc enc">enc</div>` : '';
+      ? `<div class="tenc thr" title="Threshold encryption: requires ${t.threshold_t} shares to decrypt">${t.threshold_t}-of-n key</div>`
+      : t.encrypted ? `<div class="tenc enc" title="End-to-end encrypted payload">encrypted</div>` : '';
     const vrfBadge = t.result_hash
-      ? `<div class="tenc vrf" title="commitment: ${t.commitment||'?'} · result hash: ${t.result_hash}">✓ VRF</div>`
+      ? `<div class="tenc vrf" title="Verifiable result — commitment: ${t.commitment||'?'} · result hash: ${t.result_hash}">✓ verified</div>`
       : '';
     const icon = t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '↻' : '…';
 
@@ -833,9 +833,9 @@ function updateTaskList(tasks) {
       const total      = t.completed_at ? (t.completed_at - t.created_at).toFixed(1) : null;
       if (claimDelay || execTime) {
         timingHtml = `<div class="task-timing">` +
-          (claimDelay ? `<span class="tt-claim" title="time to claim">claim +${claimDelay}s</span>` : '') +
-          (execTime   ? `<span class="tt-exec"  title="execution time">exec +${execTime}s</span>`   : '') +
-          (total      ? `<span class="tt-total" title="total wall time">total ${total}s</span>`       : '') +
+          (claimDelay ? `<span class="tt-claim" title="time from submit to claim">queued ${claimDelay}s</span>` : '') +
+          (execTime   ? `<span class="tt-exec"  title="execution time">ran ${execTime}s</span>`              : '') +
+          (total      ? `<span class="tt-total" title="total wall time">total ${total}s</span>`               : '') +
           `</div>`;
       }
     }
@@ -851,7 +851,7 @@ function updateTaskList(tasks) {
       <div class="task-row">
         <div class="tdot ${t.status}"></div>
         <div class="tid" title="${t.task_id}">${t.task_id.slice(0,14)}…</div>
-        <div class="tshard">s${t.shard_id}</div>
+        <div class="tshard">shard-${t.shard_id}</div>
         <div class="tstatus-icon">${icon}</div>
         ${encBadge}${vrfBadge}
       </div>
