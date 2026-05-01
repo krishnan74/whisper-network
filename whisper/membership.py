@@ -74,6 +74,7 @@ class MembershipLayer:
 
         # Keys currently up in the AXL overlay mesh (updated by topology sync loop)
         self._axl_connected: set[str] = set()
+        self._prev_axl_connected: set[str] = set()  # previous snapshot for drop detection
 
         # Injected by node.py so heartbeats can include current tasks
         self._tasks_held_fn: Callable[[], list[str]] = lambda: []
@@ -191,7 +192,9 @@ class MembershipLayer:
         newly_discovered: list[str] = []
 
         with self._lock:
-            self._axl_connected = set(connected_keys)
+            prev_connected       = self._prev_axl_connected
+            self._prev_axl_connected = set(connected_keys)
+            self._axl_connected  = set(connected_keys)
 
             for key in connected_keys:
                 if key != self.our_key and key not in self._peers:
@@ -199,22 +202,23 @@ class MembershipLayer:
                     newly_discovered.append(key)
                     self._log(f"discovered peer via AXL topology: {key[:8]}")
 
-            # Only fast-suspect when we have at least one AXL connection.
-            # An empty connected_keys means our own AXL link is degraded,
-            # not that the peers are down — fall back to the normal timeout.
-            if connected_keys:
-                for key, peer in list(self._peers.items()):
-                    if peer.status == PeerStatus.DEAD:
-                        continue
-                    if (peer.status == PeerStatus.ALIVE
-                            and key not in connected_keys
-                            and (now - peer.last_seen) > fast_suspect_after):
-                        peer.status = PeerStatus.SUSPECTED
-                        newly_suspected.append(key)
-                        self._log(
-                            f"node-{key[:8]} SUSPECTED "
-                            f"(dropped from AXL mesh + {now - peer.last_seen:.0f}s silence)"
-                        )
+            # Fast-suspect ONLY peers that were previously direct AXL peers and
+            # have now dropped out.  Do NOT fast-suspect routing-only peers (nodes
+            # that were never in connected_keys) — in a star topology those peers
+            # are reachable via the hub and their absence from connected_keys is
+            # expected, not a sign of failure.
+            dropped = prev_connected - set(connected_keys)
+            for key in dropped:
+                peer = self._peers.get(key)
+                if not peer or peer.status != PeerStatus.ALIVE:
+                    continue
+                if (now - peer.last_seen) > fast_suspect_after:
+                    peer.status = PeerStatus.SUSPECTED
+                    newly_suspected.append(key)
+                    self._log(
+                        f"node-{key[:8]} SUSPECTED "
+                        f"(dropped from AXL mesh + {now - peer.last_seen:.0f}s silence)"
+                    )
 
         # Send node_join directly to newly-seen AXL peers so they discover us without
         # waiting for the next heartbeat cycle — makes peer discovery purely AXL-driven.
