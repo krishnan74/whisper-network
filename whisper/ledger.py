@@ -10,6 +10,7 @@ Conflict resolution: higher `version` wins. Completed tasks are sticky
 will both gossip their claim; within 1-2 rounds the higher lease_expires
 timestamp propagates and the loser backs off on its next scan.
 """
+import hashlib
 import json
 import logging
 import os
@@ -48,6 +49,9 @@ class Task:
     submitter_key: Optional[str]  = None  # AXL key to notify on completion
     encrypted:     bool           = False  # True if payload is X25519 ECDH + AES-GCM encrypted
     threshold_t:   int            = 0      # > 0 when payload is THRESHOLD: t-of-n Shamir encrypted
+    claimed_at:    Optional[float] = None  # wall-clock time this node claimed the task
+    commitment:    Optional[str]   = None  # SHA256(key:task_id:claim_ts)[:16] — pre-commit proof
+    result_hash:   Optional[str]   = None  # SHA256(result)[:16] — post-execution attestation
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -276,6 +280,10 @@ class TaskLedger:
             task.status        = "in_progress"
             task.leased_by     = self.our_key
             task.lease_expires = now + self.lease_duration
+            task.claimed_at    = now
+            task.commitment    = hashlib.sha256(
+                f"{self.our_key}:{task_id}:{now:.6f}".encode()
+            ).hexdigest()[:16]
             task.version      += 1
             self._persist()
 
@@ -305,6 +313,7 @@ class TaskLedger:
             task.status       = "completed"
             task.result       = result
             task.completed_at = time.time()
+            task.result_hash  = hashlib.sha256(result.encode()).hexdigest()[:16]
             task.version     += 1
             self._persist()
 

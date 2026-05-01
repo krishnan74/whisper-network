@@ -459,16 +459,21 @@ class WhisperNode:
         tasks = {}
         for task in self.ledger.get_all_tasks():
             tasks[task.task_id] = {
-                "task_id":         task.task_id,
-                "shard_id":        task.shard_id,
-                "status":          task.status,
-                "leased_by":       (task.leased_by or "")[:8] or None,
+                "task_id":          task.task_id,
+                "shard_id":         task.shard_id,
+                "status":           task.status,
+                "leased_by":        (task.leased_by or "")[:8] or None,
                 "lease_expires_in": max(0.0, task.lease_expires - now)
                                     if task.status == "in_progress" else 0.0,
-                "result":          task.result,
-                "version":         task.version,
-                "encrypted":       task.encrypted,
-                "threshold_t":     task.threshold_t,
+                "result":           task.result,
+                "version":          task.version,
+                "encrypted":        task.encrypted,
+                "threshold_t":      task.threshold_t,
+                "created_at":       task.created_at,
+                "claimed_at":       task.claimed_at,
+                "completed_at":     task.completed_at,
+                "commitment":       task.commitment,
+                "result_hash":      task.result_hash,
             }
 
         m_events = self.membership.get_events(15)
