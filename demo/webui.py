@@ -17,12 +17,14 @@ Usage:
 import argparse
 import json
 import os
+import random
 import threading
 import time
+import uuid
 from collections import deque
 
 import requests
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, request as flask_request
 from flask_socketio import SocketIO
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -39,10 +41,54 @@ _global_events: deque = deque(maxlen=120)  # merged event log across all nodes
 _seen_events: set = set()                # dedup event strings
 _lock = threading.Lock()
 
+# Economy state
+_provider_balances: dict = {}   # node_key -> cumulative AXL earned
+_credited_tasks: set = set()    # task_ids already credited
+
 
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
+
+
+@app.route("/api/submit", methods=["POST"])
+def api_submit():
+    data  = flask_request.get_json(force=True) or {}
+    query = data.get("query", "").strip()
+    if not query:
+        return json.dumps({"error": "query required"}), 400
+
+    with _lock:
+        alive = {p: s for p, s in _node_states.items() if s}
+    if not alive:
+        return json.dumps({"error": "no nodes available"}), 503
+
+    # Build shard_id → port map (prefer the node that owns that shard)
+    shard_to_port: dict[int, int] = {}
+    for port, state in alive.items():
+        sid = state.get("shard_id")
+        if sid:
+            shard_to_port[sid] = port
+
+    submitted = []
+    fallback_ports = list(alive.keys())
+    for shard_id in range(1, 7):
+        target = shard_to_port.get(shard_id) or random.choice(fallback_ports)
+        task_id = str(uuid.uuid4())
+        try:
+            r = requests.post(
+                f"http://127.0.0.1:{target}/submit",
+                json={"task_id": task_id, "payload": query, "shard_id": shard_id},
+                timeout=3,
+            )
+            if r.status_code == 200:
+                submitted.append({"task_id": task_id, "shard_id": shard_id})
+        except Exception:
+            pass
+
+    if not submitted:
+        return json.dumps({"error": "all node submissions failed"}), 503
+    return json.dumps({"ok": True, "submitted": submitted, "query": query})
 
 
 @app.route("/snapshot")
@@ -54,7 +100,48 @@ def snapshot():
 @socketio.on("connect")
 def on_connect():
     with _lock:
-        socketio.emit("update", _build_payload())
+        payload = _build_payload()
+        _update_economy(payload["nodes"], payload["tasks"])
+    socketio.emit("update", payload)
+
+
+# ── Reputation + economy ──────────────────────────────────────────────────────
+
+def _compute_reputation(m: dict) -> int:
+    completed = m.get("completed", 0)
+    rescued   = m.get("tasks_rescued", 0)
+    avg_s     = m.get("avg_completion_s")
+    total = completed + rescued
+    if total == 0:
+        return 0
+    volume = min(total / 8, 1.0) * 40
+    speed  = max(0, 1 - (avg_s / 10)) * 40 if avg_s is not None else 20
+    rescue = min(rescued / 4, 1.0) * 20
+    return min(100, round(volume + speed + rescue))
+
+
+def _update_economy(nodes: list, tasks: list):
+    """Credit newly completed tasks, update per-node balances and reputation in-place."""
+    for t in tasks:
+        tid = t.get("task_id")
+        if t.get("status") == "completed" and tid not in _credited_tasks:
+            _credited_tasks.add(tid)
+            exec_short = t.get("leased_by")
+            if not exec_short:
+                continue
+            for n in nodes:
+                if (n.get("short") or n["id"][:8]) == exec_short:
+                    _provider_balances[n["id"]] = _provider_balances.get(n["id"], 0.0) + 0.01
+                    ts = time.strftime("%H:%M:%S")
+                    ev = f"[{ts}] {exec_short} +0.010 AXL · shard-{t.get('shard_id')}"
+                    ev_key = f"eco:{tid}"
+                    if ev_key not in _seen_events:
+                        _seen_events.add(ev_key)
+                        _global_events.appendleft(ev)
+                    break
+    for n in nodes:
+        n["balance"]    = round(_provider_balances.get(n["id"], 0.0), 3)
+        n["reputation"] = _compute_reputation(n.get("metrics", {}))
 
 
 # ── Graph + payload builder ────────────────────────────────────────────────────
@@ -143,6 +230,7 @@ def _build_payload() -> dict:
             "in_progress": in_prog, "pending": pending,
             "alive": alive, "rescued": rescued,
             "avg_completion_s": avg_s, "mttr_s": mttr,
+            "total_balance": round(sum(_provider_balances.values()), 3),
         },
         "ts": time.time(),
     }
@@ -211,6 +299,7 @@ def _poller(ports: list[int]):
             with _lock:
                 payload = _build_payload()
                 _update_mttr(payload["nodes"], payload["tasks"])
+                _update_economy(payload["nodes"], payload["tasks"])
             socketio.emit("update", payload)
 
         time.sleep(2)
