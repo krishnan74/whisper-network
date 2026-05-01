@@ -199,18 +199,22 @@ class MembershipLayer:
                     newly_discovered.append(key)
                     self._log(f"discovered peer via AXL topology: {key[:8]}")
 
-            for key, peer in list(self._peers.items()):
-                if peer.status == PeerStatus.DEAD:
-                    continue
-                if (peer.status == PeerStatus.ALIVE
-                        and key not in connected_keys
-                        and (now - peer.last_seen) > fast_suspect_after):
-                    peer.status = PeerStatus.SUSPECTED
-                    newly_suspected.append(key)
-                    self._log(
-                        f"node-{key[:8]} SUSPECTED "
-                        f"(dropped from AXL mesh + {now - peer.last_seen:.0f}s silence)"
-                    )
+            # Only fast-suspect when we have at least one AXL connection.
+            # An empty connected_keys means our own AXL link is degraded,
+            # not that the peers are down — fall back to the normal timeout.
+            if connected_keys:
+                for key, peer in list(self._peers.items()):
+                    if peer.status == PeerStatus.DEAD:
+                        continue
+                    if (peer.status == PeerStatus.ALIVE
+                            and key not in connected_keys
+                            and (now - peer.last_seen) > fast_suspect_after):
+                        peer.status = PeerStatus.SUSPECTED
+                        newly_suspected.append(key)
+                        self._log(
+                            f"node-{key[:8]} SUSPECTED "
+                            f"(dropped from AXL mesh + {now - peer.last_seen:.0f}s silence)"
+                        )
 
         # Send node_join directly to newly-seen AXL peers so they discover us without
         # waiting for the next heartbeat cycle — makes peer discovery purely AXL-driven.

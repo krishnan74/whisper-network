@@ -92,7 +92,7 @@ for i in 1 2 3 4 5 6; do
         > "logs/axl-${i}.log" 2>&1 &
     PIDS+=($!)
 
-    sleep 0.5  # stagger startup slightly
+    sleep 1.5  # give AXL time to complete TLS handshake before whisper starts
 
     "${PYTHON}" -m whisper.node \
         --api-base            "http://127.0.0.1:${API_PORT}" \
