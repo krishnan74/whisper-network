@@ -51,6 +51,10 @@ _credited_tasks: set = set()    # task_ids already credited
 # Kill/revive state
 _node_pids: dict[int, int] = {}  # debug_port -> whisper node PID
 
+# AXL gateway (node-1's AXL API — used for direct AXL sends from the webui)
+_axl_base: str = "http://127.0.0.1:9002"
+_our_axl_key: str = ""   # lazily fetched from /topology
+
 
 @app.route("/")
 def index():
@@ -69,22 +73,37 @@ def api_submit():
     if not alive:
         return json.dumps({"error": "no nodes available"}), 503
 
-    # Build shard_id → port map (prefer the node that owns that shard)
-    shard_to_port: dict[int, int] = {}
-    for port, state in alive.items():
+    # Build shard_id → AXL key map from polled node states
+    shard_to_key: dict[int, str] = {}
+    for state in alive.values():
         sid = state.get("shard_id")
-        if sid:
-            shard_to_port[sid] = port
+        key = state.get("our_key")
+        if sid and key:
+            shard_to_key[sid] = key
 
+    our_key   = _get_our_axl_key()
+    all_keys  = list(shard_to_key.values())
     submitted = []
-    fallback_ports = list(alive.keys())
+
     for shard_id in range(1, 7):
-        target = shard_to_port.get(shard_id) or random.choice(fallback_ports)
+        # Route each subtask directly to the AXL peer that owns this shard
+        target_key = shard_to_key.get(shard_id) or (all_keys[0] if all_keys else None)
+        if not target_key:
+            continue
         task_id = str(uuid.uuid4())
+        msg = {
+            "type":     "task_submit",
+            "msg_id":   str(uuid.uuid4()),
+            "from":     our_key,
+            "task_id":  task_id,
+            "payload":  query,
+            "shard_id": shard_id,
+        }
         try:
             r = requests.post(
-                f"http://127.0.0.1:{target}/submit",
-                json={"task_id": task_id, "payload": query, "shard_id": shard_id},
+                f"{_axl_base}/send",
+                headers={"X-Destination-Peer-Id": target_key},
+                data=json.dumps(msg).encode(),
                 timeout=3,
             )
             if r.status_code == 200:
@@ -93,8 +112,20 @@ def api_submit():
             pass
 
     if not submitted:
-        return json.dumps({"error": "all node submissions failed"}), 503
-    return json.dumps({"ok": True, "submitted": submitted, "query": query})
+        return json.dumps({"error": "all AXL submissions failed"}), 503
+    return json.dumps({"ok": True, "submitted": submitted, "query": query, "via": "axl"})
+
+
+def _get_our_axl_key() -> str:
+    global _our_axl_key
+    if _our_axl_key:
+        return _our_axl_key
+    try:
+        topo = requests.get(f"{_axl_base}/topology", timeout=3).json()
+        _our_axl_key = topo.get("our_public_key", "")
+    except Exception:
+        pass
+    return _our_axl_key
 
 
 def _find_whisper_pid(port: int) -> int | None:
@@ -378,12 +409,16 @@ def _poller(ports: list[int]):
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 def main():
+    global _axl_base
     parser = argparse.ArgumentParser(description="Whisper Network Web UI")
-    parser.add_argument("--host",  default="0.0.0.0")
-    parser.add_argument("--port",  type=int, default=5000)
-    parser.add_argument("--nodes", default="8888-8893",
+    parser.add_argument("--host",     default="0.0.0.0")
+    parser.add_argument("--port",     type=int, default=5000)
+    parser.add_argument("--nodes",    default="8888-8893",
                         help="Port range or comma list of whisper debug ports")
+    parser.add_argument("--axl-base", default="http://127.0.0.1:9002",
+                        help="AXL HTTP API of gateway node (for sending tasks via AXL mesh)")
     args = parser.parse_args()
+    _axl_base = args.axl_base
 
     if "-" in args.nodes:
         lo, hi = args.nodes.split("-")
