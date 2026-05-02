@@ -96,6 +96,7 @@ class WhisperNode:
         key_file:           Optional[str] = None,
         capabilities:       Optional[list] = None,
         price_axl:          float = 0.01,
+        exec_delay:         float = 0.0,
     ):
         self.debug_port  = debug_port
 
@@ -158,6 +159,7 @@ class WhisperNode:
             payload_cipher     = self._cipher,
             collect_shares_fn  = self._collect_threshold_shares,
             capabilities       = list(capabilities) if capabilities else [],
+            exec_delay         = exec_delay,
         )
 
         self.membership.set_tasks_held_fn(self.ledger.get_my_task_ids)
@@ -296,7 +298,9 @@ class WhisperNode:
             self.ledger.submit_task(task_id, payload, shard_id, submitter_key=submitter_key)
             logger.info("P2P task %s (shard-%d) received via AXL from %s",
                         task_id[:12], shard_id, (submitter_key or "?")[:8])
-            # Run price auction in background — winner gets an immediate claim head-start
+            # Wake scan loop immediately as fallback, then run the price auction.
+            # The auction winner bypasses the scan cycle entirely via execute_awarded_task.
+            self.runtime.wake()
             threading.Thread(
                 target=self._run_auction, args=(task_id, shard_id),
                 daemon=True, name=f"auction-{task_id[:8]}",
@@ -356,8 +360,7 @@ class WhisperNode:
             task_id[:12], shard_id, len(bids), winner_key[:8], winner_price,
         )
 
-        # Send award to winner
-        self.transport.send(winner_key, {
+        award_msg = {
             "type":      "task_award",
             "msg_id":    str(uuid.uuid4()),
             "from":      self.our_key,
@@ -365,7 +368,12 @@ class WhisperNode:
             "winner":    winner_key,
             "price_axl": winner_price,
             "shard_id":  shard_id,
-        })
+        }
+        if winner_key == self.our_key:
+            # Handle self-award directly — AXL may not loopback to self
+            self._handle_task_award(award_msg)
+        else:
+            self.transport.send(winner_key, award_msg)
 
         all_prices = ", ".join(f"{b['from'][:8]}@{b['price_axl']:.3f}" for b in bids[:4])
         self.ledger._log(
@@ -408,14 +416,20 @@ class WhisperNode:
                 col["event"].set()
 
     def _handle_task_award(self, msg: dict):
-        """We won the auction — claim the task immediately to beat the scan-cycle delay."""
+        """We won the auction — claim and immediately execute to bypass the scan-cycle delay."""
         task_id    = msg.get("task_id")
         winner_key = msg.get("winner")
         price      = msg.get("price_axl", 0.01)
         if not task_id or winner_key != self.our_key:
             return
         logger.info("won auction for task %s (%.3f AXL) — claiming immediately", task_id[:12], price)
-        self.ledger.claim_task(task_id)
+        if self.ledger.claim_task(task_id):
+            threading.Thread(
+                target=self.runtime.execute_awarded_task,
+                args=(task_id,),
+                daemon=True,
+                name=f"exec-{task_id[:8]}",
+            ).start()
 
     def _start_debug_server(self):
         _Handler.node = self
@@ -655,6 +669,8 @@ def main():
                         help="Comma-separated agent capabilities e.g. search,summarize,reason")
     parser.add_argument("--price-axl",           type=float, default=0.01,
                         help="AXL price per completed job advertised to the market")
+    parser.add_argument("--exec-delay",          type=float, default=0.0,
+                        help="Seconds to sleep before completing a task (0=off; use 10-20 to demo kill/rescue)")
     parser.add_argument("--log-level",           default="INFO")
     args = parser.parse_args()
 
@@ -678,6 +694,7 @@ def main():
         key_file            = args.key_file,
         capabilities        = caps,
         price_axl           = args.price_axl,
+        exec_delay          = args.exec_delay,
     )
     node.start()
 

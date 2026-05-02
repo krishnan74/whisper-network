@@ -82,14 +82,9 @@ def api_submit():
             shard_to_key[sid] = key
 
     our_key   = _get_our_axl_key()
-    all_keys  = list(shard_to_key.values())
     submitted = []
 
-    for shard_id in range(1, 7):
-        # Route each subtask directly to the AXL peer that owns this shard
-        target_key = shard_to_key.get(shard_id) or (all_keys[0] if all_keys else None)
-        if not target_key:
-            continue
+    for shard_id, target_key in shard_to_key.items():
         task_id = str(uuid.uuid4())
         msg = {
             "type":     "task_submit",

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Run all 6 nodes locally (no Docker) on a single machine.
+# Run N nodes locally (no Docker) on a single machine.
 # Each AXL instance gets a unique api_port and tcp_port.
-# All 6 nodes use the same Yggdrasil peer address (node-1 listens on 9001).
+# All nodes use the same Yggdrasil peer address (node-1 listens on 9001).
 #
-# Usage: ./run_local.sh [query]
+# Usage: ./run_local.sh [--count N]
 # Ctrl-C to stop all nodes.
 set -euo pipefail
 
@@ -11,6 +11,31 @@ PYTHON="${PYTHON:-$([ -f .venv/bin/python ] && echo .venv/bin/python || echo pyt
 AXL_BIN="${AXL_BIN:-./axl/node}"
 SHARDS_DIR="${SHARDS_DIR:-./demo/shards}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
+COUNT=6
+
+# Parse --count argument
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --count)
+            COUNT="${2:?--count requires a value}"
+            shift 2
+            ;;
+        --count=*)
+            COUNT="${1#*=}"
+            shift
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            echo "Usage: $0 [--count N]" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if ! [[ "$COUNT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "--count must be a positive integer, got: $COUNT" >&2
+    exit 1
+fi
 
 # FAST_MODE=1: aggressive timing for quick judging demos (recovery in ~10s not ~40s)
 if [ "${FAST_MODE:-0}" = "1" ]; then
@@ -18,6 +43,14 @@ if [ "${FAST_MODE:-0}" = "1" ]; then
     echo "FAST_MODE enabled: lease=${LEASE_DURATION}s hb=${HEARTBEAT_INTERVAL}s suspect=${SUSPECT_AFTER}s"
 else
     LEASE_DURATION=30; RENEW_THRESHOLD=15; HEARTBEAT_INTERVAL=2; SUSPECT_AFTER=10
+fi
+
+# EXEC_DELAY: seconds each node sleeps before completing a task.
+# Set to 15-20 to create a visible in_progress window for kill/rescue demos.
+# Example:  EXEC_DELAY=15 FAST_MODE=1 ./run_local.sh
+EXEC_DELAY="${EXEC_DELAY:-0}"
+if [ "${EXEC_DELAY}" != "0" ]; then
+    echo "EXEC_DELAY=${EXEC_DELAY}s — tasks will pause before completing (kill-rescue demo mode)"
 fi
 
 if [ ! -f "${AXL_BIN}" ]; then
@@ -28,7 +61,7 @@ fi
 
 # Generate keys if needed
 mkdir -p keys
-for i in 1 2 3 4 5 6; do
+for i in $(seq 1 "${COUNT}"); do
     if [ ! -f "keys/private-${i}.pem" ]; then
         echo "Generating key for node-${i}..."
         openssl genpkey -algorithm ed25519 -out "keys/private-${i}.pem"
@@ -40,7 +73,7 @@ done
 # it is the bridge destination port used when routing overlay messages. Unique
 # values cause /send to return 502 even though the Yggdrasil mesh connects fine.
 mkdir -p axl-local
-for i in 1 2 3 4 5 6; do
+for i in $(seq 1 "${COUNT}"); do
     API_PORT=$((9001 + i))
     if [ "${i}" -eq 1 ]; then
         PEERS="[]"
@@ -76,16 +109,18 @@ trap cleanup EXIT INT TERM
 mkdir -p logs data
 
 # Per-node capabilities and prices — creates a visible agent marketplace
-# Nodes 1/4=search, 2/5=summarize, 3/6=reason with backup coverage for resilience
-NODE_CAPS=("" "search" "summarize" "reason" "search" "summarize" "reason")
-NODE_PRICE=("" "0.010" "0.012" "0.015" "0.009" "0.011" "0.013")
+# Pattern repeats: search, summarize, reason (with price decreasing each cycle)
+NODE_CAPS=("" "search" "summarize" "reason" "search" "summarize" "reason" "search" "summarize" "reason")
+NODE_PRICE=("" "0.010" "0.012" "0.015" "0.009" "0.011" "0.013" "0.008" "0.010" "0.012")
 
-echo "Starting 6 AXL + whisper nodes..."
-for i in 1 2 3 4 5 6; do
+echo "Starting ${COUNT} AXL + whisper nodes..."
+for i in $(seq 1 "${COUNT}"); do
     API_PORT=$((9001 + i))
     DEBUG_PORT=$((8887 + i))
-    CAPS="${NODE_CAPS[$i]}"
-    PRICE="${NODE_PRICE[$i]}"
+    # Wrap around if COUNT > array length
+    CAP_IDX=$(( ((i - 1) % 3) + 1 ))
+    CAPS="${NODE_CAPS[$CAP_IDX]}"
+    PRICE="${NODE_PRICE[$i]:-0.010}"
     echo "  node-${i}: AXL api_port=${API_PORT}  whisper debug=:${DEBUG_PORT}  caps=${CAPS}  price=${PRICE} AXL"
 
     "${AXL_BIN}" -config "axl-local/node-config-${i}.json" \
@@ -100,7 +135,7 @@ for i in 1 2 3 4 5 6; do
         --shard-file          "${SHARDS_DIR}/shard-${i}.txt" \
         --ledger-file         "data/ledger-${i}.json" \
         --debug-port          "${DEBUG_PORT}" \
-        --cluster-size        6 \
+        --cluster-size        "${COUNT}" \
         --lease-duration      "${LEASE_DURATION}" \
         --renew-threshold     "${RENEW_THRESHOLD}" \
         --heartbeat-interval  "${HEARTBEAT_INTERVAL}" \
@@ -108,13 +143,15 @@ for i in 1 2 3 4 5 6; do
         --key-file            "keys/private-${i}.pem" \
         --capabilities        "${CAPS}" \
         --price-axl           "${PRICE}" \
+        --exec-delay          "${EXEC_DELAY}" \
         --log-level           "${LOG_LEVEL}" \
         > "logs/whisper-${i}.log" 2>&1 &
     PIDS+=($!)
 done
 
+LAST_DEBUG_PORT=$((8887 + COUNT))
 echo ""
-echo "All nodes started. Debug APIs on ports 8888-8893."
+echo "All ${COUNT} nodes started. Debug APIs on ports 8888-${LAST_DEBUG_PORT}."
 echo "  Web UI:     .venv/bin/python -m demo.webui          (http://localhost:5000)"
 echo "  Dashboard:  .venv/bin/python -m demo.dashboard"
 echo "  Submit:     .venv/bin/python -m demo.submit_task 'neural network'"

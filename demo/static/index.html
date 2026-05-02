@@ -198,15 +198,16 @@ body {
 .panel-title-accent { width: 2px; height: 10px; border-radius: 1px; flex-shrink: 0; background: var(--blue); box-shadow: 0 0 6px var(--blue-glow); }
 .panel-title-count { margin-left: auto; color: var(--muted); font-size: 10px; }
 
-#node-list { flex: 1; overflow-y: auto; padding: 7px; display: flex; flex-direction: column; gap: 5px; }
+#node-list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 7px; display: flex; flex-direction: column; gap: 5px; min-height: 0; }
 
 .node-card {
   border-radius: 7px; padding: 9px 12px;
   background: var(--surface2);
   border: 1px solid var(--border); border-left: 2px solid var(--border);
-  font-size: 10px; line-height: 1.8;
+  font-size: 10px; line-height: 1.7;
   transition: border-color 0.3s, background 0.3s;
-  position: relative; overflow: hidden;
+  position: relative;
+  /* No overflow:hidden — content must always be fully visible */
 }
 .node-card::after {
   content: ''; position: absolute; top: 0; right: 0;
@@ -219,19 +220,19 @@ body {
 .node-card.dead    { border-left-color: var(--dead);    background: linear-gradient(120deg, rgba(255,45,85,0.04) 0%, var(--surface2) 55%); opacity: 0.75; }
 .node-card.offline { opacity: 0.35; }
 
-.nc-header { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; }
-.nc-id { font-weight: bold; font-size: 13px; color: var(--text); letter-spacing: 0.5px; }
-.badge { font-size: 9px; font-weight: bold; padding: 2px 6px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.8px; border: 1px solid; }
+.nc-header { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; flex-wrap: wrap; }
+.nc-id { font-weight: bold; font-size: 13px; color: var(--text); letter-spacing: 0.5px; flex-shrink: 0; }
+.badge { font-size: 9px; font-weight: bold; padding: 2px 6px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.8px; border: 1px solid; flex-shrink: 0; }
 .badge.alive     { color: var(--alive);   border-color: rgba(0,245,160,0.4);  background: var(--alive-bg); }
 .badge.suspected { color: var(--suspect); border-color: rgba(255,184,0,0.4);  background: var(--suspect-bg); }
 .badge.dead      { color: var(--dead);    border-color: rgba(255,45,85,0.4);  background: var(--dead-bg); }
 .badge.offline   { color: var(--muted);   border-color: var(--border);        background: transparent; }
-.nc-jobs-badge { margin-left: auto; font-size: 9px; padding: 1px 5px; border-radius: 8px; background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(0,212,255,0.25); }
+.nc-jobs-badge { font-size: 9px; padding: 1px 5px; border-radius: 8px; background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(0,212,255,0.25); flex-shrink: 0; margin-left: auto; }
+/* When kill btn is also present, jobs badge doesn't get auto margin */
+.nc-header .nc-kill-btn { margin-left: auto; }
+.nc-header .nc-jobs-badge + .nc-kill-btn { margin-left: 4px; }
+.nc-header .nc-jobs-badge:has(+ .nc-kill-btn) { margin-left: auto; }
 
-.nc-row { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
-.nc-key { color: var(--muted2); font-size: 10px; }
-.nc-val { color: var(--text); }
-.nc-sep { color: var(--border2); margin: 0 3px; }
 .nc-balance { color: var(--gold) !important; text-shadow: 0 0 8px var(--gold-glow); }
 
 /* Capability badges */
@@ -248,9 +249,9 @@ body {
 
 /* Kill / Revive buttons */
 .nc-kill-btn {
-  margin-left: auto; font-size: 8.5px; padding: 2px 8px; border-radius: 4px;
+  font-size: 8.5px; padding: 2px 7px; border-radius: 4px;
   font-family: var(--mono); cursor: pointer; transition: all 0.2s;
-  font-weight: bold; letter-spacing: 0.5px; white-space: nowrap;
+  font-weight: bold; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;
   border: 1px solid rgba(255,45,85,0.45); background: rgba(255,45,85,0.1); color: var(--dead);
 }
 .nc-kill-btn:hover   { background: rgba(255,45,85,0.22); box-shadow: 0 0 8px rgba(255,45,85,0.2); }
@@ -259,6 +260,21 @@ body {
   border-color: rgba(0,245,160,0.45); background: rgba(0,245,160,0.1); color: var(--alive);
 }
 .nc-revive-btn:hover { background: rgba(0,245,160,0.22); box-shadow: 0 0 8px rgba(0,245,160,0.2); }
+
+/* Stats grid — 2-column layout prevents row overflow */
+.nc-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 6px;
+  font-size: 10px;
+  margin-top: 4px;
+}
+.nc-stat {
+  display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden;
+}
+.nc-stat .nc-key { color: var(--muted2); font-size: 9px; flex-shrink: 0; white-space: nowrap; }
+.nc-stat .nc-val { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-stat.full-width { grid-column: 1 / -1; }
 
 /* Reputation bar */
 .rep-wrap { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
@@ -397,9 +413,11 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 .tt-total { font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: var(--purple-bg); color: var(--purple); border: 1px solid rgba(181,123,255,0.15); }
 
 /* Scrollbars */
-::-webkit-scrollbar { width: 2px; }
+::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 1px; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+#node-list::-webkit-scrollbar { width: 4px; }
+#node-list::-webkit-scrollbar-thumb { background: var(--muted2); border-radius: 2px; }
 
 /* ── Tooltip ── */
 #tooltip {
@@ -458,7 +476,7 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 <!-- ── Submit bar ── -->
 <div id="submit-bar">
   <input id="query-input" type="text" placeholder="Type an AI inference query and press Enter — e.g. 'attention mechanism'" spellcheck="false" autocomplete="off" />
-  <span class="submit-hint">→ broadcasts to all 6 shards</span>
+  <span class="submit-hint" id="submit-hint">→ broadcasts to all nodes</span>
   <button id="submit-btn">⊙ Submit Query</button>
   <div id="submit-status">no cluster data yet</div>
 </div>
@@ -780,27 +798,18 @@ function updateSidebar(data) {
         <span class="badge ${st}">${st}</span>
         ${jobsBadge}${killBtn}
       </div>
-      <div class="nc-row">
-        <span class="nc-key">shard</span><span class="nc-val">s-${n.shard_id}</span>
-        <span class="nc-sep">·</span>
-        <span class="nc-key">port</span><span class="nc-val">${n.port}</span>
-        <span class="nc-sep">·</span>
-        <span class="nc-key">peers</span><span class="nc-val">${n.up_peers}/${n.total_peers} up</span>
-      </div>
-      <div class="nc-row">
-        <span class="nc-key">completed</span><span class="nc-val">${m.completed||0}</span>
-        <span class="nc-sep">·</span>
-        <span class="nc-key">rescued</span><span class="nc-val">${m.tasks_rescued||0}</span>
-        <span class="nc-sep">·</span>
-        <span class="nc-key">avg time</span><span class="nc-val">${avg}</span>
-      </div>
-      <div class="nc-row">
-        <span class="nc-key">balance</span>
-        <span class="nc-val nc-balance">${(n.balance||0).toFixed(3)} AXL</span>
+      <div class="nc-stats">
+        <div class="nc-stat"><span class="nc-key">shard</span><span class="nc-val">s-${n.shard_id}</span></div>
+        <div class="nc-stat"><span class="nc-key">port</span><span class="nc-val">:${n.port}</span></div>
+        <div class="nc-stat"><span class="nc-key">peers</span><span class="nc-val">${n.up_peers}/${n.total_peers} up</span></div>
+        <div class="nc-stat"><span class="nc-key">avg</span><span class="nc-val">${avg}</span></div>
+        <div class="nc-stat"><span class="nc-key">done</span><span class="nc-val">${m.completed||0}</span></div>
+        <div class="nc-stat"><span class="nc-key">rescued</span><span class="nc-val">${m.tasks_rescued||0}</span></div>
+        <div class="nc-stat full-width"><span class="nc-key">balance</span><span class="nc-val nc-balance">${(n.balance||0).toFixed(3)} AXL</span></div>
       </div>
       ${capHtml}
       <div class="rep-wrap">
-        <span class="rep-label">reputation</span>
+        <span class="rep-label">rep</span>
         <div class="rep-bar-bg"><div class="rep-bar-fill ${repCls}" style="width:${rep}%"></div></div>
         <span class="rep-score">${rep > 0 ? rep : repLabel}</span>
       </div>
@@ -808,8 +817,10 @@ function updateSidebar(data) {
     list.appendChild(el);
   });
 
-  // Update submit status when cluster first available
+  // Update submit hint and status when cluster first available
   const aliveCount = nodes.filter(n=>n.status==='alive').length;
+  document.getElementById('submit-hint').textContent =
+    `→ broadcasts to all ${nodes.length} shard${nodes.length!==1?'s':''}`;
   const statusEl = document.getElementById('submit-status');
   if (statusEl.textContent === 'no cluster data yet') {
     statusEl.textContent = aliveCount > 0
@@ -935,7 +946,7 @@ async function submitQuery() {
 
   btn.disabled = true;
   status.className = '';
-  status.textContent = '⊙ submitting to 6 shards…';
+  status.textContent = '⊙ submitting…';
 
   try {
     const resp = await fetch('/api/submit', {

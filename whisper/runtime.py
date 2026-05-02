@@ -17,7 +17,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-SCAN_INTERVAL = 5.0   # seconds between ledger scans
+SCAN_INTERVAL = 5.0   # seconds between ledger scans (also max latency for non-auction tasks)
 
 
 class AgentRuntime:
@@ -32,6 +32,7 @@ class AgentRuntime:
         payload_cipher   = None,
         collect_shares_fn = None,
         capabilities: list = None,
+        exec_delay: float = 0.0,
     ):
         self.ledger            = ledger
         self.our_key           = our_key
@@ -42,6 +43,7 @@ class AgentRuntime:
         self.payload_cipher    = payload_cipher
         self.collect_shares_fn = collect_shares_fn
         self.capabilities      = set(capabilities) if capabilities else set()
+        self.exec_delay        = exec_delay  # artificial delay before completing a task (demo kill window)
 
         # Load ALL shards — any surviving node can execute any task
         self._shards: dict[int, list[str]] = {}
@@ -49,6 +51,14 @@ class AgentRuntime:
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
+
+        # Track in-flight task_ids to prevent double-execution across
+        # the auction path and the scan-loop fallback path.
+        self._executing: set = set()
+        self._exec_lock = threading.Lock()
+
+        # Event to wake the scan loop early (e.g. when a new task arrives).
+        self._wake_event = threading.Event()
 
     def _load_all_shards(self):
         for i in range(1, self.num_shards + 1):
@@ -71,6 +81,11 @@ class AgentRuntime:
 
     def stop(self):
         self._running = False
+        self._wake_event.set()  # unblock the wait so the thread exits cleanly
+
+    def wake(self):
+        """Signal the scan loop to run immediately instead of waiting SCAN_INTERVAL."""
+        self._wake_event.set()
 
     def _loop(self):
         while self._running:
@@ -78,7 +93,8 @@ class AgentRuntime:
                 self._scan()
             except Exception as e:
                 logger.error("runtime scan error: %s", e, exc_info=True)
-            time.sleep(SCAN_INTERVAL)
+            self._wake_event.wait(timeout=SCAN_INTERVAL)
+            self._wake_event.clear()
 
     def _replica_shard_for(self) -> int:
         """Return the shard ID this node is the designated replica for (circular: n→n-1)."""
@@ -138,72 +154,119 @@ class AgentRuntime:
             logger.info("no quorum — skipping %d orphaned task(s) to avoid split-brain",
                         sum(1 for t in claimable if t.shard_id != self.shard_id))
 
+        # Dispatch each claimable task in its own thread so threshold share
+        # collection (up to 4s) doesn't block the whole scan cycle.
         for task in mine + replica_orphaned + general_orphaned:
+            with self._exec_lock:
+                if task.task_id in self._executing:
+                    continue  # already running via auction path
+
             if not self.ledger.claim_task(task.task_id):
                 continue
 
-            # Brief pause to let gossip propagate our claim before executing;
-            # if another node won the race we'll see it on next scan.
+            with self._exec_lock:
+                self._executing.add(task.task_id)
+
+            threading.Thread(
+                target=self._run_exec_thread,
+                args=(task.task_id,),
+                daemon=True,
+                name=f"exec-{task.task_id[:8]}",
+            ).start()
+
+    def _run_exec_thread(self, task_id: str):
+        """Thread body: brief gossip-settle pause, verify lease, then execute."""
+        try:
+            # Brief pause to let gossip propagate our claim before executing
             time.sleep(0.3)
-
-            # Re-check we still hold the lease after gossip settle
             active = [t for t in self.ledger.get_my_active_tasks()
-                      if t.task_id == task.task_id]
+                      if t.task_id == task_id]
             if not active:
-                logger.info("lost lease race for %s, skipping", task.task_id[:12])
-                continue
+                logger.info("lost lease race for %s, skipping", task_id[:12])
+                return
+            self._execute_one(active[0])
+        finally:
+            with self._exec_lock:
+                self._executing.discard(task_id)
 
-            from whisper.crypto import ThresholdCipher as _TC
-            origin  = "home" if task.shard_id == self.shard_id else "survivor"
-            payload = task.payload
+    def execute_awarded_task(self, task_id: str):
+        """
+        Called by node.py immediately after winning an auction.
+        Runs in the caller's thread (already a daemon thread spawned by node.py).
+        Skips if the scan loop already picked up the same task.
+        """
+        with self._exec_lock:
+            if task_id in self._executing:
+                return
+            self._executing.add(task_id)
+        try:
+            time.sleep(0.3)  # let gossip propagate our claim
+            active = [t for t in self.ledger.get_my_active_tasks()
+                      if t.task_id == task_id]
+            if not active:
+                logger.info("auction claim for %s lost in gossip, skipping", task_id[:12])
+                return
+            self._execute_one(active[0])
+        finally:
+            with self._exec_lock:
+                self._executing.discard(task_id)
 
-            # ── Threshold decryption (t-of-n Shamir) ──────────────────────────
-            if task.threshold_t > 0 and payload.startswith(_TC.MARKER):
-                if not self.collect_shares_fn:
-                    result = f"shard-{task.shard_id}: [threshold encrypted — no share collection fn]"
-                    self.ledger.complete_task(task.task_id, result)
-                    break
-                shares = self.collect_shares_fn(task)
-                if len(shares) < task.threshold_t:
-                    logger.warning(
-                        "task %s: only %d/%d shares collected — releasing lease to retry",
-                        task.task_id[:12], len(shares), task.threshold_t,
-                    )
-                    self.ledger.release_lease(task.task_id)
-                    break
+    def _execute_one(self, task):
+        """Execute a single task whose lease we already hold."""
+        from whisper.crypto import ThresholdCipher as _TC
+        origin  = "home" if task.shard_id == self.shard_id else "survivor"
+        payload = task.payload
+
+        # ── Threshold decryption (t-of-n Shamir) ──────────────────────────
+        if task.threshold_t > 0 and payload.startswith(_TC.MARKER):
+            if not self.collect_shares_fn:
+                result = f"shard-{task.shard_id}: [threshold encrypted — no share collection fn]"
+                self.ledger.complete_task(task.task_id, result)
+                return
+            shares = self.collect_shares_fn(task)
+            if len(shares) < task.threshold_t:
+                logger.warning(
+                    "task %s: only %d/%d shares collected — releasing lease to retry",
+                    task.task_id[:12], len(shares), task.threshold_t,
+                )
+                self.ledger.release_lease(task.task_id)
+                return
+            try:
+                payload = _TC.reconstruct_and_decrypt(payload, shares)
+                logger.info(
+                    "task %s: threshold decrypted (%d shares) [%s]",
+                    task.task_id[:12], len(shares), origin,
+                )
+            except Exception as e:
+                result = f"shard-{task.shard_id}: [threshold decryption failed: {e}]"
+                self.ledger.complete_task(task.task_id, result)
+                return
+
+        # ── Per-shard ECDH decryption ──────────────────────────────────────
+        elif task.encrypted and payload.startswith("ENC:"):
+            if self.payload_cipher and self.payload_cipher.enabled:
                 try:
-                    payload = _TC.reconstruct_and_decrypt(payload, shares)
-                    logger.info(
-                        "task %s: threshold decrypted (%d shares) [%s]",
-                        task.task_id[:12], len(shares), origin,
-                    )
-                except Exception as e:
-                    result = f"shard-{task.shard_id}: [threshold decryption failed: {e}]"
+                    payload = self.payload_cipher.decrypt(payload)
+                    logger.info("task %s: payload decrypted [%s]", task.task_id[:12], origin)
+                except Exception:
+                    result = f"shard-{task.shard_id}: [encrypted payload — home node offline]"
                     self.ledger.complete_task(task.task_id, result)
-                    break
+                    return
+            else:
+                result = f"shard-{task.shard_id}: [encrypted payload — no key configured]"
+                self.ledger.complete_task(task.task_id, result)
+                return
 
-            # ── Per-shard ECDH decryption ──────────────────────────────────────
-            elif task.encrypted and payload.startswith("ENC:"):
-                if self.payload_cipher and self.payload_cipher.enabled:
-                    try:
-                        payload = self.payload_cipher.decrypt(payload)
-                        logger.info("task %s: payload decrypted [%s]", task.task_id[:12], origin)
-                    except Exception:
-                        result = f"shard-{task.shard_id}: [encrypted payload — home node offline]"
-                        self.ledger.complete_task(task.task_id, result)
-                        break
-                else:
-                    result = f"shard-{task.shard_id}: [encrypted payload — no key configured]"
-                    self.ledger.complete_task(task.task_id, result)
-                    break
-
-            logger.info(
-                "executing task %s (shard-%d) [%s]",
-                task.task_id[:12], task.shard_id, origin,
-            )
-            result = self.execute(payload, task.shard_id)
-            self.ledger.complete_task(task.task_id, result)
-            break  # process one task per scan cycle
+        logger.info(
+            "executing task %s (shard-%d) [%s]",
+            task.task_id[:12], task.shard_id, origin,
+        )
+        if self.exec_delay > 0:
+            logger.info("task %s: simulating %gs work — kill this node now to trigger rescue",
+                        task.task_id[:12], self.exec_delay)
+            time.sleep(self.exec_delay)
+        result = self.execute(payload, task.shard_id)
+        self.ledger.complete_task(task.task_id, result)
 
     def execute(self, payload: str, shard_id: int) -> str:
         """
