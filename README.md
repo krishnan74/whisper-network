@@ -286,3 +286,153 @@ Discovered during implementation — not in AXL docs:
 2. **All providers on the same machine must share `tcp_port: 7000`.** This port is the bridge routing destination. Using unique values per provider causes `/send` to return **502** even though the Yggdrasil mesh shows peers as `"up": true`. `run_local.sh` hard-codes `tcp_port: 7000` for all providers.
 
 3. **Heartbeats loop back via gossip relay.** The dedup cache handles most cases, but `_on_heartbeat` must explicitly skip messages where `msg["from"] == our_key` to avoid a provider adding itself to its own peer list.
+---
+# ENS subname demo (`ens-test`)
+
+A minimal **Next.js (App Router)** app that integrates:
+
+- **[RainbowKit](https://www.rainbowkit.com/)** + **[Wagmi v2](https://wagmi.sh/)** + **[viem](https://viem.sh/)** — wallet connection
+- **[@tanstack/react-query](https://tanstack.com/query/latest)** — data fetching state
+- **[JustaName React SDK](https://docs.justaname.id/react-sdk/overview)** (`@justaname.id/react`) — check availability, resolve names, issue subnames (including optional **signature-free** issuance via `overrideSignatureCheck`)
+
+Use it as a reference when wiring ENS subnames into your own product.
+
+---
+
+## What users can do
+
+| Route | Behavior |
+|--------|----------|
+| **`/`** | Connect wallet → show **reverse-resolved** name or an owned **`*.notdocker.eth`** subname → if none, claim a flat subname `label.notdocker.eth` |
+| **`/subnames`** | After the user owns a subname like `node.notdocker.eth`, create **nested** labels under that parent (e.g. `agent1.node.notdocker.eth`). Also lists matching subnames via `useSearchSubnames`. |
+
+Chain and parent domain are **hard-coded for Sepolia + `notdocker.eth`** in this demo — change constants when you fork.
+
+---
+
+## Prerequisites
+
+1. **JustaName account & API key** — [JustaName dashboard](https://dashboard.justaname.id/).
+2. An ENS domain **configured in JustaName** for the chain you use (this repo uses **`notdocker.eth`** on **Sepolia**).
+3. **WalletConnect Cloud project ID** (for RainbowKit) — [WalletConnect Cloud](https://cloud.walletconnect.com/).
+
+---
+
+## Environment variables
+
+Create **`.env.local`** in `ens-test/` (never commit secrets):
+
+```bash
+# Required — RainbowKit / WalletConnect
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
+
+# Required — JustaName (must match dashboard + configured ENS domain / chain)
+NEXT_PUBLIC_JUSTANAME_API_KEY=your_justaname_api_key
+
+# Optional — overrides default Sepolia RPC used by JustaNameProvider.networks[].providerUrl
+NEXT_PUBLIC_SEPOLIA_RPC_URL=https://...
+```
+
+Notes:
+
+- `NEXT_PUBLIC_*` values are exposed to the browser — treat the JustaName key as **public if you embed it**. For production, prefer routing issuance through **your backend** with a secret key.
+
+---
+
+## Install & run
+
+```bash
+cd ens-test
+
+pnpm install
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+```bash
+pnpm lint
+pnpm build
+```
+
+---
+
+## How it fits together (for integrators)
+
+### Provider order
+
+The tree must wrap your app like this:
+
+1. **`WagmiProvider`** (`getDefaultConfig` from RainbowKit)
+2. **`QueryClientProvider`**
+3. **`RainbowKitProvider`**
+4. **`JustaNameProvider`** (from `@justaname.id/react`)
+
+Implementation lives in:
+
+- [`app/layout.tsx`](app/layout.tsx) — fonts, RainbowKit CSS, wraps children with `ClientProviders`
+- [`app/ClientProviders.tsx`](app/ClientProviders.tsx) — renders wallet/ENS providers **only after hydration** (`useSyncExternalStore`) to avoid SSR issues with WalletConnect / hydration mismatches
+- [`app/providers.tsx`](app/providers.tsx) — builds Wagmi + JustaName config
+
+### JustaName config (important fields)
+
+[`app/providers.tsx`](app/providers.tsx) sets:
+
+- `config.origin` / `config.domain` from `window` (client-only)
+- `networks: [{ chainId, providerUrl }]` — **Sepolia** + RPC
+- `ensDomains: [{ ensDomain, chainId, apiKey }]` — **`notdocker.eth`** + **`NEXT_PUBLIC_JUSTANAME_API_KEY`**
+
+To use **mainnet**, switch `sepolia` → `mainnet` (or multi-chain), update `CHAIN_ID`, `providerUrl`, and `ensDomains` to match.
+
+### Routes & components
+
+| File | Purpose |
+|------|---------|
+| [`app/page.tsx`](app/page.tsx) | Home shell + `EnsSubnameManager` |
+| [`app/EnsSubnameManager.tsx`](app/EnsSubnameManager.tsx) | Resolve / claim **`user.notdocker.eth`**; signature-free path calls `justaname.subnames.addSubname(..., { overrideSignatureCheck: true, ... })` |
+| [`app/subnames/page.tsx`](app/subnames/page.tsx) | Parent = wallet’s **`*.notdocker.eth`** subname → mint **`agent.&lt;parent&gt;`**; search list under parent |
+
+### Constants to change when you integrate
+
+Search and replace conceptually:
+
+- **`notdocker.eth`** — your ENS parent (must match JustaName + chain)
+- **`11155111` / Sepolia** — your target chain
+- Optional: toggle **signature-free** vs **`useAddSubname`** SIWE-style flow — see [Issue subnames](https://docs.justaname.id/react-sdk/issue-subnames)
+
+---
+
+## Nested subnames (`/subnames`) vs JustaName limits
+
+Conceptually ENS allows **`agent.node.notdocker.eth`**.
+
+Whether **JustaName** accepts **`ensDomain = node.notdocker.eth`** depends on **your workspace / dashboard**: if the API responds with **`EnsNotFoundException`**, that parent subname is **not registered as an issuable domain** in JustaName. Fix it in the dashboard / support docs, or keep issuing flat names under the single configured root (`notdocker.eth`) only.
+
+This demo surfaces that error when it happens.
+
+---
+
+## Official docs
+
+- [JustaName React SDK — Overview](https://docs.justaname.id/react-sdk/overview)
+- [Check availability](https://docs.justaname.id/react-sdk/check-availability)
+- [Issue subnames](https://docs.justaname.id/react-sdk/issue-subnames)
+- [Reverse resolution](https://docs.justaname.id/react-sdk/reverse-resolution)
+
+---
+
+## Tech stack snapshot
+
+See [`package.json`](package.json): Next.js 16, React 19, wagmi 2.x, RainbowKit 2.x, `@justaname.id/react` ~0.3.215.
+
+---
+
+## Monorepo / copy-paste integration
+
+You can drop the **`app/` provider pattern** (`ClientProviders.tsx` + `providers.tsx`) and the **ENS components** into another Next.js app:
+
+1. Install the same deps (or compatible versions).
+2. Copy `.env.local` entries.
+3. Register your ENS domain in JustaName for the chosen chain.
+
+If you integrate into **non-Next** React, replace `ClientProviders` with your own **client-only boundary** — the gist is **no WalletConnect on the Node SSR render path**.

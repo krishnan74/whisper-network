@@ -2,6 +2,7 @@
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { EnsSubnameManager } from "./EnsSubnameManager";
+import Link from "next/link";
 
 export default function Home() {
   return (
@@ -15,7 +16,15 @@ export default function Home() {
             Claim & resolve your subname on Sepolia.
           </div>
         </div>
-        <ConnectButton />
+        <div className="flex items-center gap-3">
+          <Link
+            href="/subnames"
+            className="text-sm font-medium text-zinc-700 hover:text-zinc-900"
+          >
+            Subnames
+          </Link>
+          <ConnectButton />
+        </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-4xl px-6 pb-16">
