@@ -128,9 +128,9 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 24px;
+  padding: 10px 24px;
   background: var(--bg-2);
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 2px solid var(--rule);
   flex-shrink: 0;
 }
 #query-input {
@@ -172,13 +172,18 @@ body {
 .submit-hint { font-family: var(--mono); font-size: 9px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.1em; white-space: nowrap; }
 
 /* ── Layout ── */
-#main { display: flex; flex: 1; overflow: hidden; position: relative; }
+#main {
+  display: flex; flex: 1; overflow: hidden; position: relative;
+  background: var(--bg-2);
+  gap: 8px;
+  padding: 8px;
+}
 
 /* ── Left panel ── */
 #left {
   width: 264px; flex-shrink: 0;
   background: var(--bg);
-  border-right: 1px solid var(--rule);
+  border: 1px solid var(--rule);
   display: flex; flex-direction: column; overflow: hidden;
 }
 .panel-title {
@@ -186,13 +191,14 @@ body {
   font-family: var(--mono);
   font-size: 10px; color: var(--ink-3);
   text-transform: uppercase; letter-spacing: 0.12em;
-  padding: 10px 14px 9px;
+  padding: 11px 14px 10px;
+  background: var(--bg-2);
   border-bottom: 1px solid var(--rule);
   flex-shrink: 0;
 }
 .panel-title-count { margin-left: auto; color: var(--ink-3); font-size: 10px; }
 
-#node-list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+#node-list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px 8px; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 
 .node-card {
   padding: 10px 12px;
@@ -296,7 +302,7 @@ body {
 .rep-label { font-family: var(--mono); font-size: 9px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.08em; }
 
 /* ── Graph ── */
-#graph-wrap { flex: 1; position: relative; overflow: hidden; background: var(--bg-2); }
+#graph-wrap { flex: 1; position: relative; overflow: hidden; background: var(--bg-2); border: 1px solid var(--rule); }
 svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 
 .edge { stroke: var(--rule); stroke-width: 1; opacity: 0.8; }
@@ -363,9 +369,9 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 .legend-dot.dead      { border-color: var(--dead);  background: var(--dead-soft); }
 
 /* ── Right panel ── */
-#right { width: 296px; flex-shrink: 0; background: var(--bg); border-left: 1px solid var(--rule); display: flex; flex-direction: column; overflow: hidden; }
+#right { width: 296px; flex-shrink: 0; background: var(--bg); border: 1px solid var(--rule); display: flex; flex-direction: column; overflow: hidden; }
 
-#event-feed { flex: 1; overflow-y: auto; padding: 5px 8px; display: flex; flex-direction: column; gap: 1px; font-size: 11px; line-height: 1.5; }
+#event-feed { flex: 1; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; font-size: 11px; line-height: 1.5; }
 .ev-row {
   display: flex; gap: 7px; align-items: flex-start;
   padding: 4px 8px; border-left: 2px solid transparent;
@@ -383,8 +389,8 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 .ev-row.ev-economy { border-left-color: var(--gold);    } .ev-row.ev-economy .ev-msg { color: var(--gold); }
 
 /* Task panel */
-#task-panel { border-top: 1px solid var(--rule); max-height: 230px; overflow-y: auto; flex-shrink: 0; }
-#task-panel-inner { padding: 5px 8px; display: flex; flex-direction: column; gap: 3px; }
+#task-panel { border-top: 2px solid var(--rule); max-height: 230px; overflow-y: auto; flex-shrink: 0; }
+#task-panel-inner { padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 
 .task-card {
   padding: 6px 8px;
@@ -540,7 +546,7 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
       Live Events
     </div>
     <div id="event-feed"></div>
-    <div class="panel-title" style="border-top:1px solid var(--rule)">
+    <div class="panel-title" style="border-top:2px solid var(--rule)">
       Inference Jobs
       <span class="panel-title-count" id="job-count">0 jobs</span>
     </div>
