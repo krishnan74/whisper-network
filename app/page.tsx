@@ -23,6 +23,12 @@ export default function Home() {
           >
             Subnames
           </Link>
+          <Link
+            href="/new"
+            className="text-sm font-medium text-zinc-700 hover:text-zinc-900"
+          >
+            On-chain
+          </Link>
           <ConnectButton />
         </div>
       </header>
