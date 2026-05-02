@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
 from whisper.crypto import Signer, PayloadCipher, ThresholdCipher
+from whisper.ens import start_registration
 from whisper.ledger import TaskLedger
 from whisper.membership import MembershipLayer
 from whisper.runtime import AgentRuntime
@@ -106,6 +107,7 @@ class WhisperNode:
         self._cipher     = PayloadCipher(key_file)
         logger.info("our key: %s...", self.our_key[:16])
 
+        self.ens_name: Optional[str]  = None
         self._axl_mesh_stats: dict    = {"total_peers": 0, "up_peers": 0}
         self._recovered_task_count: int = 0
         self._task_results: list      = []   # buffered task_result AXL push notifications
@@ -205,6 +207,14 @@ class WhisperNode:
         logger.info(
             "whisper node running (shard-%d, debug :%d)",
             self.runtime.shard_id, self.debug_port,
+        )
+
+        start_registration(
+            shard_id     = self.runtime.shard_id,
+            peer_id      = self.our_key,
+            capabilities = self.membership.our_capabilities,
+            price_axl    = self.membership.our_price_axl,
+            callback     = lambda name: setattr(self, "ens_name", name),
         )
 
     # ── Background threads ────────────────────────────────────────────────────
@@ -630,6 +640,7 @@ class WhisperNode:
             "our_key":         self.our_key,
             "key_short":       self.our_key[:8],
             "shard_id":        self.runtime.shard_id,
+            "ens_name":        self.ens_name,
             "axl_mesh":        self._axl_mesh_stats,
             "recovered_tasks": self._recovered_task_count,
             "metrics":         self.ledger.get_metrics(),

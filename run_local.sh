@@ -7,6 +7,11 @@
 # Ctrl-C to stop all nodes.
 set -euo pipefail
 
+# Load .env if present (provides JUSTANAME_API_KEY etc.)
+if [[ -f .env ]]; then
+  set -a; source .env; set +a
+fi
+
 PYTHON="${PYTHON:-$([ -f .venv/bin/python ] && echo .venv/bin/python || echo python3)}"
 AXL_BIN="${AXL_BIN:-./axl/node}"
 SHARDS_DIR="${SHARDS_DIR:-./demo/shards}"

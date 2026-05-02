@@ -14,6 +14,10 @@ logs/
 # OS
 .DS_Store
 
+# Secrets
+.env
+.env.*
+
 # ens-test (Next.js app)
 ens-test/node_modules/
 ens-test/.next/

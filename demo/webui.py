@@ -252,7 +252,7 @@ def _build_payload() -> dict:
             # Node unreachable — represent as offline placeholder
             nodes.append({
                 "id": f"offline-{port}", "short": f":{port}",
-                "shard_id": 0, "port": port, "status": "offline",
+                "shard_id": 0, "ens_name": None, "port": port, "status": "offline",
                 "up_peers": 0, "total_peers": 0, "metrics": {},
             })
             continue
@@ -266,6 +266,7 @@ def _build_payload() -> dict:
             "id":           our_key,
             "short":        state.get("key_short", our_key[:8]),
             "shard_id":     state.get("shard_id", 0),
+            "ens_name":     state.get("ens_name"),
             "port":         port,
             "status":       "alive",
             "up_peers":     axl_mesh.get("up_peers", 0),

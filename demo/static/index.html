@@ -234,6 +234,7 @@ body {
 .nc-header .nc-jobs-badge:has(+ .nc-kill-btn) { margin-left: auto; }
 
 .nc-balance { color: var(--gold) !important; text-shadow: 0 0 8px var(--gold-glow); }
+.nc-ens { font-size: 9px; color: var(--muted2); margin-bottom: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Capability badges */
 .nc-caps { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
@@ -798,6 +799,7 @@ function updateSidebar(data) {
         <span class="badge ${st}">${st}</span>
         ${jobsBadge}${killBtn}
       </div>
+      ${n.ens_name ? `<div class="nc-ens">${n.ens_name}</div>` : ''}
       <div class="nc-stats">
         <div class="nc-stat"><span class="nc-key">shard</span><span class="nc-val">s-${n.shard_id}</span></div>
         <div class="nc-stat"><span class="nc-key">port</span><span class="nc-val">:${n.port}</span></div>
