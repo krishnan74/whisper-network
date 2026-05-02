@@ -1,8 +1,8 @@
 "use client";
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { EnsSubnameManager } from "./EnsSubnameManager";
 import Link from "next/link";
+import { OnchainEnsFlow } from "./OnchainEnsFlow";
 
 export default function Home() {
   return (
@@ -10,19 +10,13 @@ export default function Home() {
       <header className="mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-10">
         <div className="flex flex-col">
           <div className="text-base font-semibold tracking-tight">
-            notdocker.eth
+            ENS flow (Sepolia)
           </div>
           <div className="mt-1 text-sm text-zinc-500">
-            Claim & resolve your subname on Sepolia.
+            Register `kuber12.eth`, then issue subnames and nested subnames.
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Link
-            href="/subnames"
-            className="text-sm font-medium text-zinc-700 hover:text-zinc-900"
-          >
-            Subnames
-          </Link>
           <Link
             href="/new"
             className="text-sm font-medium text-zinc-700 hover:text-zinc-900"
@@ -34,7 +28,7 @@ export default function Home() {
       </header>
 
       <main className="mx-auto flex w-full max-w-4xl px-6 pb-16">
-        <EnsSubnameManager />
+        <OnchainEnsFlow />
       </main>
     </div>
   );
