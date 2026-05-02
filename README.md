@@ -22,6 +22,8 @@ Kill half the providers mid-inference. The jobs complete anyway.
 - The AXL topology is the authoritative peer registry — no separate discovery service
 - X25519 payload encryption is derived from AXL identity keys — no separate key management
 
+**ENS identity layer.** Each provider self-registers a human-readable subname under `notdocker.eth` on Sepolia at startup (e.g. `node1.notdocker.eth`). Text records store the provider's AXL peer ID, capabilities, price, and shard — making nodes discoverable by name across the open ENS namespace without any central directory.
+
 ---
 
 ## Architecture
@@ -59,6 +61,12 @@ Kill half the providers mid-inference. The jobs complete anyway.
 │  ↳ ed25519 identity per provider (same PEM for signing + X25519 key)      │
 │  ↳ encrypted Yggdrasil overlay — all job traffic is private end-to-end    │
 │  ↳ bidirectional bus: task_submit in / task_result out                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  ENS Identity Layer (JustaName / Sepolia)                                   │
+│  on startup: claim node{N}.notdocker.eth · set text records via REST API   │
+│  ↳ axl.peer_id — full AXL public key (lookup by human-readable name)      │
+│  ↳ capabilities, price_axl, shard_id stored as ENS text records           │
+│  ↳ signature-free: no wallet required — API key + overrideSignatureCheck  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -76,6 +84,8 @@ Kill half the providers mid-inference. The jobs complete anyway.
 
 **Identity recovery.** A provider that restarts with the same AXL key re-adopts its in-progress jobs by refreshing lease expiry. Peers see updated leases within one gossip round — no job loss on restart.
 
+**ENS self-registration.** On startup each provider fires a background thread that claims `node{N}.notdocker.eth` on Sepolia via the JustaName REST API. Text records `axl.peer_id`, `capabilities`, `price_axl`, and `shard_id` are set in the same call — no wallet signature needed (`overrideSignatureCheck: true`). The registered name appears on the provider's card in the Web UI within seconds. Disabled silently if `JUSTANAME_API_KEY` is not set.
+
 ---
 
 ## Requirements
@@ -84,12 +94,16 @@ Kill half the providers mid-inference. The jobs complete anyway.
 - AXL binary at `axl/node` (pre-built Linux x86-64)
 - `openssl` (key generation — called automatically by `run_local.sh`)
 - Docker (optional — only for the Docker Compose setup)
+- `JUSTANAME_API_KEY` in `.env` (optional — enables ENS subname registration on Sepolia)
 
 ---
 
 ## Quickstart
 
 ```bash
+# 0. (Optional) Add your JustaName API key for ENS self-registration
+echo "JUSTANAME_API_KEY=your_key_here" >> .env
+
 # 1. Start 6 providers (FAST_MODE: 5s leases, quick recovery)
 FAST_MODE=1 ./run_local.sh
 
@@ -192,7 +206,7 @@ Injects jobs through the AXL encrypted overlay (`task_submit`), receives `task_r
 
 Three-panel live interface:
 
-**Left — Provider cards:** per-provider status badge (alive/suspected/dead), shard ID, AXL mesh peers up/total, completed jobs, rescued jobs, average completion time, AXL balance, capability badges, reputation bar. Scrollable when more than ~4 nodes are visible. **Kill / Revive buttons** on each card let you simulate node failure and recovery directly from the browser.
+**Left — Provider cards:** per-provider status badge (alive/suspected/dead), ENS name (e.g. `node1.notdocker.eth` — appears within seconds of startup if `JUSTANAME_API_KEY` is set), shard ID, AXL mesh peers up/total, completed jobs, rescued jobs, average completion time, AXL balance, capability badges, reputation bar. Scrollable when more than ~4 nodes are visible. **Kill / Revive buttons** on each card let you simulate node failure and recovery directly from the browser.
 
 **Center — D3.js topology graph:** force-directed, draggable, zoomable. Provider circles colour-coded by status; glow pulse on suspected providers; AXL mesh edges with flowing dashes; shard label and active-job count badge inside each circle. **Animated job flow:** particles fly toward the executing provider when a job is claimed; amber dots orbit the node while `in_progress`; green ripple rings expand on completion.
 
@@ -221,6 +235,7 @@ whisper/
   crypto.py             ed25519 sign/verify + X25519 ECDH + AES-GCM + Shamir GF(256)
   runtime.py            Layer 3: auction-driven execution + shard-affinity + scan fallback
   node.py               entry point: wires all layers + price auction + debug HTTP (:8888+n)
+  ens.py                ENS self-registration: claims node{N}.notdocker.eth on Sepolia at startup
 
 demo/
   webui.py              Flask+SocketIO: polls /state, emits live updates, kill/revive API
@@ -238,7 +253,8 @@ demo/
 docker-compose.yml      6-provider Docker Compose setup
 Dockerfile              single-container image (AXL binary + Python app)
 start.sh                container entrypoint (generates key, starts AXL + whisper)
-run_local.sh            N-provider local setup — supports --count, FAST_MODE, EXEC_DELAY
+run_local.sh            N-provider local setup — supports --count, FAST_MODE, EXEC_DELAY; sources .env
+.env                    local secrets (gitignored) — set JUSTANAME_API_KEY here
 ```
 
 ---
@@ -282,6 +298,12 @@ The lease has not expired yet. With `FAST_MODE=1` wait ~5s; default mode wait ~3
 
 **Nodes 5/6 showing `0/1 up` peers**
 Previous AXL process still holding the port from a prior run. Kill all AXL and whisper processes (`pkill -f 'axl/node'; pkill -f 'whisper.node'`), then restart.
+
+**ENS name not appearing on node cards**
+Either `JUSTANAME_API_KEY` is not set in `.env`, or the subname is already taken (another run claimed it). Check logs for `ENS registered` or `ENS registration failed` lines. Verify with: `curl "https://api.justaname.id/ens/v1/subname/subname?subname=node1.notdocker.eth&chainId=11155111"`
+
+**ENS records show on JustaName but not on `sepolia.app.ens.domains`**
+Expected — JustaName stores records off-chain via CCIP-Read (ERC-3668). The standard ENS app doesn't query the JustaName gateway. Records are fully resolvable via the JustaName API and any CCIP-Read-aware client.
 
 ---
 

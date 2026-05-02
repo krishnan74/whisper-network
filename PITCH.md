@@ -27,6 +27,7 @@ AXL is not a transport layer bolted on for the demo. It is the entire infrastruc
 | **Encryption keys** | X25519 keys are derived from the ed25519 AXL identity via HKDF — no separate key management |
 | **Threshold crypto** | Each Shamir share of the AES key is encrypted to a different node's AXL-derived X25519 pubkey |
 | **Result delivery** | `task_result` is pushed back to the submitter's AXL identity via `/send` |
+| **ENS identity** | Each node self-registers `node{N}.notdocker.eth` on Sepolia at startup — AXL peer ID stored as a text record, making nodes discoverable by name across the open ENS namespace |
 
 Remove AXL and the system cannot function. It is not a convenience — it is the foundation.
 
@@ -47,6 +48,8 @@ Remove AXL and the system cannot function. It is not a convenience — it is the
 **Lease duration gossip convergence** — nodes advertise their configured lease timeout in heartbeats; the cluster auto-adopts the minimum, so a single misconfigured node cannot starve the cluster of fast recovery.
 
 **Capability-aware marketplace** — each provider advertises its capabilities (`search`, `summarize`, `reason`) and price per job. The auction routing engine ensures tasks route to providers that can actually execute them.
+
+**ENS self-registration** — on startup each provider fires a background thread that claims `node{N}.notdocker.eth` on Sepolia (Ethereum testnet) via the JustaName REST API. Text records encode the provider's full AXL public key, capabilities, price, and shard ID. No wallet is required — the domain operator's API key authorises registration via `overrideSignatureCheck`. Records are stored off-chain (CCIP-Read / ERC-3668) and resolvable by any ENS-compatible client. This gives every compute provider a permanent, human-readable identity that maps directly to its cryptographic AXL key.
 
 ---
 
@@ -80,7 +83,8 @@ Remove AXL and the system cannot function. It is not a convenience — it is the
 | Fault tolerance | 50% node loss (3 of 6) — fully recovers |
 | Threshold | 3-of-6 Shamir — no single node sees the plaintext |
 | Coordinator nodes | 0 |
-| External services required | 0 (AXL is the only dependency) |
+| External services required | 0 required (AXL only); JustaName optional for ENS names |
+| ENS namespace | `notdocker.eth` on Sepolia — each node claims `node{N}.notdocker.eth` |
 | Verifiability | SHA256 commitment + result hash per task |
 | Max cluster size | Unlimited (quorum adapts; `--count N` in run_local.sh) |
 
@@ -90,4 +94,6 @@ Remove AXL and the system cannot function. It is not a convenience — it is the
 
 The AI compute market problem is exactly this: untrusted workers, no central coordinator, results that must be verifiable. Whisper Network demonstrates that AXL's identity, transport, and topology primitives are sufficient to build a fully decentralised job market from scratch — no blockchain required, no trusted coordinator, no single point of failure.
 
-This is a working proof-of-concept for AXL as compute market infrastructure.
+The ENS integration extends this further: every compute provider gets a permanent, human-readable name (`node1.notdocker.eth`) that maps directly to its AXL cryptographic identity. Peer discovery, capability lookup, and price discovery become ENS record queries — no off-chain registry, no DNS, no central directory.
+
+This is a working proof-of-concept for AXL as compute market infrastructure, with ENS as the open identity and discovery layer on top.
