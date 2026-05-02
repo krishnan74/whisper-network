@@ -13,3 +13,11 @@ logs/
 
 # OS
 .DS_Store
+
+# ens-test (Next.js app)
+ens-test/node_modules/
+ens-test/.next/
+ens-test/out/
+ens-test/.env
+ens-test/.env.*
+
