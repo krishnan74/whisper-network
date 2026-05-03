@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/main/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -13,9 +14,11 @@
 # testing
 /coverage
 
-# next.js
+# next.js (app lives in main/)
 /.next/
 /out/
+/main/.next/
+/main/out/
 
 # production
 /build
@@ -44,6 +47,10 @@ next-env.d.ts
 __pycache__/
 *.py[cod]
 .venv/
+/.venv-pyens/
+
+# pyens CLI local persisted state (see pyens/constants.py STATE_FILE)
+.pyens_state.json
 
 # Runtime generated
 keys/
@@ -52,14 +59,7 @@ data/
 logs/
 *.log
 
-# OS
-.DS_Store
-
-# Secrets
-.env
-.env.*
-
-# ens-test (Next.js app)
+# legacy nested copy (if present)
 ens-test/node_modules/
 ens-test/.next/
 ens-test/out/
