@@ -217,6 +217,12 @@ class WhisperNode:
             callback     = lambda name: setattr(self, "ens_name", name),
         )
 
+        # ENS peer discovery is intentionally disabled: AXL topology sync
+        # already discovers all live peers within one sync cycle (~5s).
+        # Seeding membership from ENS adds stale registrations from old runs,
+        # which flood the cluster with phantom failure events and destabilise
+        # quorum until they all time out (~20s).
+
     # ── Background threads ────────────────────────────────────────────────────
 
     def _start_recv_loop(self):

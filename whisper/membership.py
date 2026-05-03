@@ -373,8 +373,10 @@ class MembershipLayer:
             peer = self._peers[sender]
             peer.last_seen = time.time()
             if peer.status != PeerStatus.ALIVE:
+                prev = peer.status.value
                 peer.status = PeerStatus.ALIVE
-                self._log(f"node {sender[:8]} rejoined (was {peer.status.value})")
+                self._suspicions.pop(sender, None)
+                self._log(f"node {sender[:8]} rejoined (was {prev})")
             if msg.get("shard_id") is not None:
                 peer.shard_id = int(msg["shard_id"])
             if msg.get("enc_pubkey"):
@@ -418,10 +420,11 @@ class MembershipLayer:
 
             if peer.status == PeerStatus.SUSPECTED:
                 peer.status = PeerStatus.ALIVE
+                self._suspicions.pop(sender, None)   # reset so stale reports can't re-kill
                 self._log(f"node-{sender[:8]} recovered (was suspected)")
             elif peer.status == PeerStatus.DEAD:
-                # Allow revival — at startup nodes may be briefly wrongly confirmed dead
                 peer.status = PeerStatus.ALIVE
+                self._suspicions.pop(sender, None)   # reset so stale reports can't re-kill
                 self._log(f"node-{sender[:8]} REVIVED (was confirmed dead)")
 
             # Absorb newly advertised peers
@@ -444,10 +447,17 @@ class MembershipLayer:
 
         confirmed_dead = False
         with self._lock:
+            peer = self._peers.get(suspect)
+            # Discard suspicion if the peer has already sent a heartbeat more
+            # recently than this suspicion was generated — it's a stale report
+            # from before the node recovered.
+            sus_ts = msg.get("timestamp", 0)
+            if peer and peer.last_seen > sus_ts:
+                return
+
             reporters = self._suspicions.setdefault(suspect, set())
             reporters.add(reporter)
 
-            peer = self._peers.get(suspect)
             if peer and peer.status != PeerStatus.DEAD and len(reporters) >= DEAD_REPORTS_NEEDED:
                 peer.status  = PeerStatus.DEAD
                 confirmed_dead = True

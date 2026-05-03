@@ -338,6 +338,7 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 .node-label { fill: var(--ink); font-size: 10px; font-family: var(--mono); pointer-events: none; text-anchor: middle; dominant-baseline: middle; font-weight: 500; letter-spacing: 0.02em; }
 .node-shard { fill: var(--ink-3); font-size: 9px; font-family: var(--mono); pointer-events: none; text-anchor: middle; letter-spacing: 0.04em; }
 .node-tasks { fill: var(--gold); font-size: 9px; font-family: var(--mono); pointer-events: none; text-anchor: middle; }
+.node-ens-lbl { fill: var(--alive); font-size: 10px; font-family: var(--mono); pointer-events: none; text-anchor: middle; letter-spacing: 0.04em; font-weight: 600; }
 
 .orbit-dot    { pointer-events: none; }
 .task-particle{ pointer-events: none; }
@@ -441,6 +442,91 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 .tt-exec  { color: var(--alive); border-color: color-mix(in oklab, var(--alive) 30%, var(--rule)); }
 .tt-total { color: var(--ink-2); }
 
+/* ── Chaos bar ── */
+#chaos-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 24px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--rule);
+  flex-shrink: 0;
+}
+.chaos-lbl { font-family: var(--mono); font-size: 9px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.1em; flex-shrink: 0; }
+.chaos-sep { width: 1px; height: 16px; background: var(--rule); flex-shrink: 0; margin: 0 4px; }
+.chaos-btn {
+  font-family: var(--mono); font-size: 9px; padding: 3px 11px;
+  border: 1px solid var(--rule); background: transparent;
+  color: var(--ink-2); cursor: pointer; letter-spacing: 0.08em;
+  text-transform: uppercase; transition: all 0.15s; border-radius: 0;
+  white-space: nowrap;
+}
+.chaos-btn:hover:not(:disabled) { border-color: var(--dead); color: var(--dead); background: var(--dead-soft); }
+.chaos-btn.heal:hover:not(:disabled) { border-color: var(--alive); color: var(--alive); background: var(--alive-soft); }
+.chaos-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+#chaos-status { font-family: var(--mono); font-size: 9px; color: var(--ink-3); letter-spacing: 0.04em; transition: color 0.3s; margin-left: 4px; }
+#chaos-status.ok  { color: var(--alive); }
+#chaos-status.err { color: var(--dead); }
+#node-scale-display { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--ink); min-width: 18px; text-align: center; }
+
+/* ── Sparkline ── */
+#sparkline-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 88px; }
+#sparkline { display: block; }
+
+/* ── Node drawer ── */
+#drawer-overlay { position: fixed; inset: 0; z-index: 99; display: none; }
+#drawer-overlay.active { display: block; }
+#drawer {
+  position: fixed; top: 0; right: -440px; width: 440px; height: 100vh;
+  background: var(--bg); border-left: 1px solid var(--rule);
+  z-index: 100; transition: right 0.22s cubic-bezier(.4,0,.2,1);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#drawer.open { right: 0; }
+.drawer-header {
+  display: flex; align-items: center; gap: 10px; padding: 13px 16px;
+  border-bottom: 1px solid var(--rule); flex-shrink: 0;
+  background: var(--bg-2);
+}
+.drawer-title { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); flex: 1; letter-spacing: 0.02em; }
+.drawer-close {
+  background: none; border: 1px solid var(--rule); color: var(--ink-3);
+  font-family: var(--mono); font-size: 10px; padding: 3px 9px;
+  cursor: pointer; border-radius: 0; letter-spacing: 0.06em; text-transform: uppercase;
+  transition: border-color 0.15s;
+}
+.drawer-close:hover { border-color: var(--ink-3); color: var(--ink); }
+.drawer-body { flex: 1; overflow-y: auto; padding: 0; }
+.dr-section { padding: 14px 16px; border-bottom: 1px solid var(--rule); }
+.dr-section:last-child { border-bottom: none; }
+.dr-section-title {
+  font-family: var(--mono); font-size: 9px; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 8px;
+}
+.dr-key-block {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-2);
+  background: var(--bg-2); border: 1px solid var(--rule);
+  padding: 8px 10px; word-break: break-all; line-height: 1.6;
+  letter-spacing: 0.02em; user-select: all;
+}
+.dr-row {
+  display: flex; justify-content: space-between; gap: 16px;
+  font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+  padding: 4px 0; border-bottom: 1px solid var(--rule-2);
+}
+.dr-row:last-child { border-bottom: none; }
+.dr-row span { color: var(--ink-2); text-align: right; }
+.dr-task-row {
+  display: flex; align-items: center; gap: 7px; padding: 4px 0;
+  border-bottom: 1px solid var(--rule-2); font-family: var(--mono); font-size: 9px;
+}
+.dr-task-row:last-child { border-bottom: none; }
+.dr-peer-row {
+  display: flex; align-items: center; gap: 8px; padding: 3px 0;
+  font-family: var(--mono); font-size: 9px; color: var(--ink-3);
+  border-bottom: 1px solid var(--rule-2);
+}
+.dr-peer-row:last-child { border-bottom: none; }
+.dr-loading { font-family: var(--mono); font-size: 10px; color: var(--ink-3); padding: 16px; }
+
 /* Scrollbars */
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -495,6 +581,12 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
     <div class="progress-lbl" style="margin-top:2px"><span id="progress-label">0 / 0 jobs</span></div>
   </div>
   <div class="hbar"></div>
+  <div id="sparkline-wrap">
+    <div class="progress-lbl"><span>Throughput</span><span id="spark-lbl">—</span></div>
+    <svg id="sparkline" width="88" height="16"></svg>
+    <div class="progress-lbl" style="margin-top:1px"><span>jobs / min</span></div>
+  </div>
+  <div class="hbar"></div>
   <div class="hstat-group">
     <div class="hstat"><div class="val purple" id="h-rescued">—</div><div class="lbl">Rescued</div></div>
     <div class="hstat"><div class="val blue"   id="h-mttr">—</div><div class="lbl">MTTR</div></div>
@@ -513,6 +605,22 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
   <span class="submit-hint" id="submit-hint">→ broadcasts to all nodes</span>
   <button id="submit-btn">Submit Query</button>
   <div id="submit-status">no cluster data yet</div>
+</div>
+
+<!-- ── Chaos bar ── -->
+<div id="chaos-bar">
+  <span class="chaos-lbl">Chaos</span>
+  <div class="chaos-sep"></div>
+  <button class="chaos-btn" id="btn-kill3" onclick="killRandom(3)">Kill 3 Random</button>
+  <button class="chaos-btn" id="btn-partition" onclick="partitionCluster()">Partition Cluster</button>
+  <button class="chaos-btn heal" id="btn-heal" onclick="healPartition()">Heal Partition</button>
+  <button class="chaos-btn heal" id="btn-revive-all" onclick="reviveAll()">Revive All</button>
+  <div class="chaos-sep"></div>
+  <span class="chaos-lbl">Nodes</span>
+  <button class="chaos-btn" id="btn-scale-down" onclick="scaleNodes(-1)">−</button>
+  <span id="node-scale-display">—</span>
+  <button class="chaos-btn heal" id="btn-scale-up" onclick="scaleNodes(1)">+</button>
+  <span id="chaos-status"></span>
 </div>
 
 <!-- ── Main ── -->
@@ -553,6 +661,17 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
     <div id="task-panel"><div id="task-panel-inner"></div></div>
   </div>
 
+</div>
+
+<div id="drawer-overlay" onclick="closeDrawer()"></div>
+<div id="drawer">
+  <div class="drawer-header">
+    <span class="drawer-title" id="drawer-title">Node</span>
+    <button class="drawer-close" onclick="closeDrawer()">✕ close</button>
+  </div>
+  <div class="drawer-body" id="drawer-body">
+    <div class="dr-loading">loading…</div>
+  </div>
 </div>
 
 <script>
@@ -614,6 +733,7 @@ function showTip(evt, d) {
   const repCls = d.reputation >= 70 ? 'green' : d.reputation >= 40 ? 'yellow' : 'red';
   tooltip.innerHTML = `
     <div class="tt-title">${d.short || d.id.slice(0,8)}</div>
+    ${d.ens_name ? `<div style="font-family:var(--mono);font-size:9px;color:var(--alive);margin:2px 0 4px">◦ ${d.ens_name}</div>` : ''}
     <span class="badge ${st} tt-badge">${st.toUpperCase()}</span>
     <div class="tt-sep"></div>
     <div class="tt-row">Shard assignment   <span>s-${d.shard_id}</span></div>
@@ -681,6 +801,7 @@ function updateGraph(data) {
       .on('drag', (e,d)=>{d.fx=e.x;d.fy=e.y;})
       .on('end',  (e,d)=>{if(!e.active)simulation.alphaTarget(0);d.fx=null;d.fy=null;}))
     .on('mouseover', showTip).on('mousemove', moveTip).on('mouseout', hideTip)
+    .on('click', (e, d) => { e.stopPropagation(); hideTip(); openDrawer(d); })
     .merge(circleSel).attr('class', d => `node-circle ${stClass(d.status)}`);
   circleSel.exit().remove();
 
@@ -698,6 +819,11 @@ function updateGraph(data) {
   jbSel.enter().append('text').attr('class','node-tasks').attr('dy','21px')
     .merge(jbSel).text(d => d.tasks_held > 0 ? `▸ ${d.tasks_held} job${d.tasks_held>1?'s':''}` : '');
   jbSel.exit().remove();
+
+  const ensLblSel = d3.select('#labels').selectAll('text.node-ens-lbl').data(nodes, d => d.id+'_ens');
+  ensLblSel.enter().append('text').attr('class','node-ens-lbl').attr('dy','44px')
+    .merge(ensLblSel).text(d => d.ens_name ? '◦ ' + d.ens_name.replace('.notdocker.eth','') : '');
+  ensLblSel.exit().remove();
 
   simulation.nodes(nodes);
   simulation.force('link').links(links);
@@ -719,7 +845,7 @@ function tick() {
     .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
   ['#pulses','#rings','#glows','#nodes'].forEach(s =>
     d3.select(s).selectAll('circle').attr('cx',d=>d.x).attr('cy',d=>d.y));
-  d3.select('#labels').selectAll('text').attr('x',d=>d.x).attr('y',d=>d.y);
+  d3.select('#labels').selectAll('text').attr('x', d => d.x).attr('y', d => d.y);
 }
 
 // ── Task animations ───────────────────────────────────────────────────────────
@@ -805,6 +931,7 @@ function updateSidebar(data) {
   document.getElementById('progress-label').textContent= `${c.completed} / ${c.total} jobs`;
   document.getElementById('node-count').textContent    = `${nodes.length} nodes`;
   document.getElementById('job-count').textContent     = `${c.total} jobs`;
+  document.getElementById('node-scale-display').textContent = nodes.length;
 
   // Node cards
   const list = document.getElementById('node-list');
@@ -950,6 +1077,232 @@ function updateTaskList(tasks) {
   });
 }
 
+// ── Sparkline ────────────────────────────────────────────────────────────────
+function updateSparkline(throughput) {
+  if (!throughput || throughput.length < 2) return;
+  const now = Date.now() / 1000;
+  const recent = throughput.filter(h => now - h.ts < 65);
+  const rate = recent.length > 1
+    ? Math.max(0, recent[recent.length - 1].c - recent[0].c)
+    : 0;
+  document.getElementById('spark-lbl').textContent = rate;
+
+  const vals = throughput.map(h => h.c);
+  const min  = Math.min(...vals), max = Math.max(...vals);
+  const W = 88, H = 16;
+  const pts = throughput.map((h, i) => {
+    const x = (i / (throughput.length - 1)) * W;
+    const y = max === min ? H / 2 : H - 2 - ((h.c - min) / (max - min)) * (H - 4);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  document.getElementById('sparkline').innerHTML =
+    `<polyline points="${pts}" fill="none" stroke="var(--alive)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+}
+
+// ── Chaos controls ───────────────────────────────────────────────────────────
+async function _chaosPost(endpoint, body, successMsg) {
+  const statusEl = document.getElementById('chaos-status');
+  const btns = document.querySelectorAll('.chaos-btn');
+  btns.forEach(b => { b.disabled = true; });
+  statusEl.className = '';
+  statusEl.textContent = '…';
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body || {}),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      statusEl.className = 'ok';
+      statusEl.textContent = successMsg(data);
+    } else {
+      statusEl.className = 'err';
+      statusEl.textContent = data.error || 'failed';
+    }
+  } catch(e) {
+    statusEl.className = 'err';
+    statusEl.textContent = e.message;
+  } finally {
+    btns.forEach(b => { b.disabled = false; });
+    setTimeout(() => { statusEl.textContent = ''; statusEl.className = ''; }, 3500);
+  }
+}
+function killRandom(n)     { _chaosPost('/api/kill_random', {count: n}, d => `killed ${d.killed.length} node${d.killed.length!==1?'s':''} (${d.killed.map(p=>':'+p).join(', ')})`); }
+function partitionCluster(){ _chaosPost('/api/partition',   {},         d => `partitioned ${d.partitioned.length} node${d.partitioned.length!==1?'s':''}`); }
+function healPartition()   { _chaosPost('/api/heal',        {},         d => `healed ${d.healed.length} node${d.healed.length!==1?'s':''}`); }
+async function reviveAll() {
+  const statusEl = document.getElementById('chaos-status');
+  const btns = document.querySelectorAll('.chaos-btn');
+  btns.forEach(b => { b.disabled = true; });
+  statusEl.className = ''; statusEl.textContent = '…';
+  let total = 0;
+  try {
+    const r1 = await fetch('/api/revive_all', {method:'POST', headers:{'Content-Type':'application/json'}});
+    const d1 = await r1.json();
+    total += (d1.revived || []).length;
+    for (const port of [...killedPorts]) {
+      await fetch('/api/revive', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({port})});
+      killedPorts.delete(port);
+      total++;
+    }
+    statusEl.className = 'ok';
+    statusEl.textContent = total > 0 ? `revived ${total} node${total!==1?'s':''}` : 'nothing to revive';
+  } catch(e) {
+    statusEl.className = 'err'; statusEl.textContent = e.message;
+  } finally {
+    btns.forEach(b => { b.disabled = false; });
+    setTimeout(() => { statusEl.textContent = ''; statusEl.className = ''; }, 3500);
+  }
+}
+
+// ── Node scale ───────────────────────────────────────────────────────────────
+async function scaleNodes(delta) {
+  const statusEl = document.getElementById('chaos-status');
+  const btns = document.querySelectorAll('.chaos-btn');
+  btns.forEach(b => { b.disabled = true; });
+  statusEl.className = '';
+  statusEl.textContent = '…';
+  const endpoint = delta > 0 ? '/api/nodes/add' : '/api/nodes/remove';
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({}),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      statusEl.className = 'ok';
+      statusEl.textContent = delta > 0 ? `node :${data.port} added` : `node :${data.removed_port} removed`;
+      document.getElementById('node-scale-display').textContent = data.total;
+    } else {
+      statusEl.className = 'err';
+      statusEl.textContent = data.error || 'failed';
+    }
+  } catch(e) {
+    statusEl.className = 'err';
+    statusEl.textContent = e.message;
+  } finally {
+    btns.forEach(b => { b.disabled = false; });
+    setTimeout(() => { statusEl.textContent = ''; statusEl.className = ''; }, 3500);
+  }
+}
+
+// ── Node drawer ───────────────────────────────────────────────────────────────
+let _drawerNode = null;
+function openDrawer(d) {
+  _drawerNode = d;
+  document.getElementById('drawer-title').textContent = d.short || d.id.slice(0,8);
+  document.getElementById('drawer-body').innerHTML = '<div class="dr-loading">loading…</div>';
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer-overlay').classList.add('active');
+  fetch(`/api/node/${d.port}`)
+    .then(r => r.ok ? r.json() : Promise.reject('offline'))
+    .then(data => {
+      renderDrawer(data, d);
+      if (data.ens_name) {
+        const ensSection = document.getElementById('drawer-ens-section');
+        if (ensSection) {
+          ensSection.innerHTML = '<div class="dr-section-title">ENS Records</div><div style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">fetching ENS records…</div>';
+          fetch(`/api/ens/${encodeURIComponent(data.ens_name)}`)
+            .then(r => r.json())
+            .then(records => {
+              if (records.error) {
+                ensSection.innerHTML = `<div class="dr-section-title">ENS Records</div><div style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">${records.error}</div>`;
+              } else {
+                const keys = Object.keys(records);
+                if (keys.length === 0) {
+                  ensSection.innerHTML = '<div class="dr-section-title">ENS Records</div><div style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">no records</div>';
+                } else {
+                  ensSection.innerHTML = '<div class="dr-section-title">ENS Records</div>' +
+                    keys.map(k => `<div class="dr-row">${k} <span style="word-break:break-all;max-width:220px">${records[k]}</span></div>`).join('');
+                }
+              }
+            })
+            .catch(() => {
+              ensSection.innerHTML = '<div class="dr-section-title">ENS Records</div><div style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">failed to fetch</div>';
+            });
+        }
+      }
+    })
+    .catch(() => {
+      document.getElementById('drawer-body').innerHTML =
+        '<div class="dr-loading" style="color:var(--dead)">node offline — no state available</div>';
+    });
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer-overlay').classList.remove('active');
+  _drawerNode = null;
+}
+function renderDrawer(data, graphNode) {
+  const m    = data.metrics || {};
+  const tasks  = Object.values(data.tasks || {}).sort((a,b)=>(b.version||0)-(a.version||0)).slice(0,15);
+  const peers  = Object.values(data.peers  || {});
+  const st     = stClass(graphNode?.status || 'offline');
+  const rep    = graphNode?.reputation || 0;
+  const repColor = rep>=70 ? 'var(--alive)' : rep>=40 ? 'var(--gold)' : 'var(--dead)';
+  const alivePeers = peers.filter(p => p.status !== 'dead').length;
+
+  const peerRows = peers.slice(0, 8).map(p => `
+    <div class="dr-peer-row">
+      <div class="tdot ${p.status==='alive'?'completed':p.status==='suspected'?'in_progress':'pending'}"></div>
+      <span style="flex:1;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.key_short||(p.full_key||'').slice(0,12)}</span>
+      <span class="badge ${p.status||'offline'}">${p.status||'?'}</span>
+    </div>`).join('');
+
+  const taskRows = tasks.map(t => `
+    <div class="dr-task-row">
+      <div class="tdot ${t.status}"></div>
+      <span style="flex:1;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.task_id}">${(t.task_id||'').slice(0,16)}…</span>
+      <span style="color:var(--ink-3);flex-shrink:0">s-${t.shard_id}</span>
+      ${t.leased_by ? `<span style="color:var(--ink-2);flex-shrink:0">${t.leased_by}</span>` : ''}
+      ${t.result_hash ? `<span class="tenc vrf" style="font-size:7px;padding:1px 4px">✓</span>` : ''}
+    </div>`).join('') || '<div style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">no tasks in ledger</div>';
+
+  document.getElementById('drawer-title').textContent = data.key_short || data.our_key.slice(0,8);
+  document.getElementById('drawer-body').innerHTML = `
+    <div class="dr-section">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span class="badge ${st}">${st}</span>
+        ${data.ens_name ? `<span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">${data.ens_name}</span>` : ''}
+      </div>
+      <div class="dr-section-title">AXL Identity</div>
+      <div class="dr-key-block" title="click to select">${data.our_key || '—'}</div>
+    </div>
+
+    <div class="dr-section">
+      <div class="dr-section-title">Node</div>
+      <div class="dr-row">Shard <span>s-${data.shard_id}</span></div>
+      <div class="dr-row">Debug port <span>:${data.port}</span></div>
+      <div class="dr-row">Capabilities <span>${(data.capabilities||[]).join(', ')||'—'}</span></div>
+      <div class="dr-row">Price <span style="color:var(--gold)">${(data.price_axl||0.01).toFixed(3)} AXL / job</span></div>
+      <div class="dr-row">Balance <span style="color:var(--gold)">${(data.balance||0).toFixed(3)} AXL</span></div>
+    </div>
+
+    <div class="dr-section">
+      <div class="dr-section-title">Performance</div>
+      <div class="dr-row">Jobs completed <span style="color:var(--alive)">${m.completed||0}</span></div>
+      <div class="dr-row">Jobs rescued <span>${m.tasks_rescued||0}</span></div>
+      <div class="dr-row">Avg completion <span>${m.avg_completion_s!=null?m.avg_completion_s+'s':'—'}</span></div>
+      <div class="dr-row">Reputation <span style="color:${repColor}">${rep} / 100</span></div>
+    </div>
+
+    <div class="dr-section">
+      <div class="dr-section-title">AXL Peers — ${alivePeers} up / ${peers.length} total</div>
+      ${peerRows || '<div style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">no peer data</div>'}
+    </div>
+
+    <div class="dr-section">
+      <div class="dr-section-title">Ledger — ${tasks.length} recent tasks</div>
+      ${taskRows}
+    </div>
+
+    ${data.ens_name ? `<div class="dr-section" id="drawer-ens-section">
+      <div class="dr-section-title">ENS Records</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">fetching ENS records…</div>
+    </div>` : ''}
+`;
+}
+
 // ── Kill / Revive ─────────────────────────────────────────────────────────────
 async function killNode(port, action) {
   const btn = document.querySelector(`.nc-kill-btn[data-port="${port}"]`);
@@ -1034,6 +1387,7 @@ socket.on('update', data => {
   updateEvents(data.events || []);
   updateTaskList(data.tasks || []);
   animateTasks(data.tasks || [], data.nodes || []);
+  updateSparkline(data.throughput || []);
 });
 
 initSim();
