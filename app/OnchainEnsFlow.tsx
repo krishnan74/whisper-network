@@ -9,12 +9,19 @@ import {
   http,
   namehash,
   parseAbi,
+  type PublicClient,
 } from "viem";
 import { sepolia } from "viem/chains";
 import { addEnsContracts } from "@ensdomains/ensjs";
 import { getNamesForAddress } from "@ensdomains/ensjs/subgraph";
-import { createSubname } from "@ensdomains/ensjs/wallet";
 import { useAccount, useWalletClient } from "wagmi";
+import { getEnsTestPrivateKeyAccount } from "@/lib/ensEnvPrivateKey";
+import { sendRegistrySubnameCreate } from "@/lib/registrySubnameTx";
+import {
+  createSponsoredEnsWriteClient,
+  isSponsoredTxConfigured,
+  type SponsoredSmartAccountClient,
+} from "@/lib/sponsoredEnsWallet";
 
 const ENS_REGISTRY = getAddress("0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e");
 
@@ -43,10 +50,75 @@ type PersistedState = {
   txLog?: TxLogEntry[];
 };
 
-const STORAGE_KEY_STATE = "ens-test:sepolia-onchain-state:axl";
-
 function sepoliaTxUrl(hash: `0x${string}`) {
   return `https://sepolia.etherscan.io/tx/${hash}`;
+}
+
+/** ENS manager on Sepolia (e.g. https://sepolia.app.ens.domains/master.axl.eth) */
+function ensSepoliaAppNameUrl(ensName: string): string {
+  const n = ensName.trim().toLowerCase();
+  return `https://sepolia.app.ens.domains/${encodeURIComponent(n)}`;
+}
+
+function TxEnsExplorerLinks({
+  ensName,
+  txHash,
+  variant = "success",
+}: {
+  ensName: string;
+  txHash: `0x${string}`;
+  /** `success` = green panel; `neutral` = history list on white */
+  variant?: "success" | "neutral";
+}) {
+  const ensUrl = ensSepoliaAppNameUrl(ensName);
+  const txUrl = sepoliaTxUrl(txHash);
+  const isSuccess = variant === "success";
+  return (
+    <div
+      className={`mt-2 flex flex-col gap-2 border-t pt-2 text-xs ${
+        isSuccess ? "border-emerald-100/80" : "border-zinc-100"
+      }`}
+    >
+      <div>
+        <span className={isSuccess ? "font-medium text-emerald-950" : "font-medium text-zinc-800"}>
+          Transaction
+        </span>
+        <p className="mt-0.5 break-all font-mono leading-relaxed">
+          <a
+            href={txUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={
+              isSuccess
+                ? "text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950"
+                : "text-emerald-800 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-950"
+            }
+          >
+            {txUrl}
+          </a>
+        </p>
+      </div>
+      <div>
+        <span className={isSuccess ? "font-medium text-emerald-950" : "font-medium text-zinc-800"}>
+          ENS (Sepolia)
+        </span>
+        <p className="mt-0.5 break-all leading-relaxed">
+          <a
+            href={ensUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={
+              isSuccess
+                ? "text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950"
+                : "text-emerald-800 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-950"
+            }
+          >
+            {ensUrl}
+          </a>
+        </p>
+      </div>
+    </div>
+  );
 }
 
 /** One label per line and/or comma-separated. Strips a trailing `.{parent}` if pasted full names. */
@@ -69,10 +141,10 @@ function parseChildLabelsForParent(raw: string, parentFqdn: string): string[] {
   return out;
 }
 
-function loadState(): PersistedState | null {
+function loadState(storageKey: string): PersistedState | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_STATE);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedState;
     if (parsed?.name !== ROOT_NAME) return null;
@@ -82,14 +154,34 @@ function loadState(): PersistedState | null {
   }
 }
 
-function saveState(state: PersistedState) {
+function saveState(storageKey: string, state: PersistedState) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(state));
+  localStorage.setItem(storageKey, JSON.stringify(state));
 }
 
-export function OnchainEnsFlow() {
-  const { isConnected, address, chainId } = useAccount();
+export type OnchainEnsFlowVariant = "wallet" | "envPrivateKey";
+
+export function OnchainEnsFlow({
+  variant = "wallet",
+}: {
+  variant?: OnchainEnsFlowVariant;
+} = {}) {
+  const storageKey =
+    variant === "envPrivateKey"
+      ? "ens-test:sepolia-onchain-state:axl:env-pk"
+      : "ens-test:sepolia-onchain-state:axl";
+
+  const envAccount = useMemo(
+    () => (variant === "envPrivateKey" ? getEnsTestPrivateKeyAccount() : null),
+    [variant]
+  );
+
+  const { isConnected, address: wagmiAddress, chainId } = useAccount();
   const { data: walletClient } = useWalletClient({ chainId: sepolia.id });
+
+  const address =
+    variant === "envPrivateKey" ? (envAccount?.address as `0x${string}` | undefined) : wagmiAddress;
+  const isConnectedEffective = variant === "envPrivateKey" ? Boolean(envAccount) : isConnected;
 
   const rpcUrl =
     process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL ??
@@ -114,9 +206,9 @@ export function OnchainEnsFlow() {
     [rpcUrl]
   );
 
-  const needsSepolia = isConnected && chainId !== sepolia.id;
+  const needsSepolia = variant === "envPrivateKey" ? false : isConnected && chainId !== sepolia.id;
 
-  const persisted = useMemo(() => loadState(), []);
+  const persisted = useMemo(() => loadState(storageKey), [storageKey]);
 
   const [rootOwner, setRootOwner] = useState<`0x${string}` | null>(
     persisted?.lastOwner ?? null
@@ -186,6 +278,8 @@ export function OnchainEnsFlow() {
     return address.toLowerCase() === rootOwner.toLowerCase();
   }, [address, rootOwner]);
 
+  const signingBlocked = variant === "envPrivateKey" ? !envAccount : !walletClient;
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -220,7 +314,7 @@ export function OnchainEnsFlow() {
   }, [publicClient]);
 
   useEffect(() => {
-    saveState({
+    saveState(storageKey, {
       name: ROOT_NAME,
       lastOwner: rootOwner,
       lastResolver: rootResolver,
@@ -229,7 +323,7 @@ export function OnchainEnsFlow() {
       prefillParent: prefillParent || undefined,
       txLog: txLog.length ? txLog : undefined,
     });
-  }, [rootOwner, rootResolver, subnames, nestedMap, prefillParent, txLog]);
+  }, [storageKey, rootOwner, rootResolver, subnames, nestedMap, prefillParent, txLog]);
 
   /** Subgraph: names for wallet under *.axl.eth (Sepolia indexer) */
   useEffect(() => {
@@ -320,12 +414,77 @@ export function OnchainEnsFlow() {
     return [...s].sort();
   }, [browserNamesList, indexedNames]);
 
+  const paymasterConfigured = useMemo(() => isSponsoredTxConfigured(), []);
+  const [usePaymasterGas, setUsePaymasterGas] = useState(true);
+
+  async function resolveWriteClients(): Promise<{
+    ensEncodeWallet: ReturnType<typeof createWalletClient>;
+    sponsored: SponsoredSmartAccountClient | null;
+    sponsoredPublicClient: PublicClient | null;
+  }> {
+    if (variant === "envPrivateKey") {
+      if (!envAccount) {
+        throw new Error(
+          "Set NEXT_PUBLIC_ENS_TEST_PRIVATE_KEY in .env.local (0x-prefixed Sepolia test key), then restart dev."
+        );
+      }
+      const ensEncodeWallet = createWalletClient({
+        account: envAccount,
+        chain: addEnsContracts(sepolia),
+        transport: http(rpcUrl),
+      });
+      if (!paymasterConfigured || !usePaymasterGas) {
+        return { ensEncodeWallet, sponsored: null, sponsoredPublicClient: null };
+      }
+      const { smartAccountClient, publicClient: sponsoredPublicClient } =
+        await createSponsoredEnsWriteClient({
+          walletClient: ensEncodeWallet,
+          executionRpcUrl: rpcUrl,
+        });
+      return {
+        ensEncodeWallet,
+        sponsored: smartAccountClient,
+        sponsoredPublicClient,
+      };
+    }
+
+    if (!walletClient || !address) throw new Error("Wallet not connected.");
+    const ensEncodeWallet = createWalletClient({
+      account: { address: getAddress(address), type: "json-rpc" },
+      chain: addEnsContracts(sepolia),
+      transport: custom(walletClient.transport),
+    });
+    if (!paymasterConfigured || !usePaymasterGas) {
+      return { ensEncodeWallet, sponsored: null, sponsoredPublicClient: null };
+    }
+    const { smartAccountClient, publicClient: sponsoredPublicClient } =
+      await createSponsoredEnsWriteClient({
+        walletClient: ensEncodeWallet,
+        executionRpcUrl: rpcUrl,
+      });
+    return {
+      ensEncodeWallet,
+      sponsored: smartAccountClient,
+      sponsoredPublicClient,
+    };
+  }
+
   async function createUnderRoot() {
     setError(null);
-    if (!walletClient) return setError("Connect your wallet first.");
+    if (variant === "envPrivateKey") {
+      if (!envAccount) {
+        return setError(
+          "Set NEXT_PUBLIC_ENS_TEST_PRIVATE_KEY in .env.local (dev-only), then restart `next dev`."
+        );
+      }
+    } else if (!walletClient) {
+      return setError("Connect your wallet first.");
+    }
     if (!isRootOwnedByConnectedWallet) {
       return setError(
-        `Your wallet must be the on-chain owner of ${ROOT_NAME} to create subnames. Connect the owner wallet.`
+        variant === "envPrivateKey"
+          ? `The private key in .env.local must control the on-chain owner of ${ROOT_NAME} to create subnames.`
+          : `Your wallet must be the on-chain owner of ${ROOT_NAME} to create subnames. Connect the owner wallet.`
       );
     }
     if (!subLabel) return setError("Enter a label (e.g. hehe).");
@@ -335,24 +494,38 @@ export function OnchainEnsFlow() {
     setBusy("creating-sub");
     setLastSuccessTx(null);
     try {
-      const ensWallet = createWalletClient({
-        account: walletClient.account,
-        chain: addEnsContracts(sepolia),
-        transport: custom(walletClient.transport),
-      });
+      let sponsored: SponsoredSmartAccountClient | null = null;
+      let sponsoredPublicClient: PublicClient | null = null;
+      let ensEncodeWallet: ReturnType<typeof createWalletClient>;
+      try {
+        const resolved = await resolveWriteClients();
+        ensEncodeWallet = resolved.ensEncodeWallet;
+        sponsored = resolved.sponsored;
+        sponsoredPublicClient = resolved.sponsoredPublicClient;
+      } catch (e) {
+        throw new Error(
+          e instanceof Error
+            ? `${e.message} Turn off “Paymaster gas” if your wallet does not support EIP-7702 on Sepolia, or fund the wallet with Sepolia ETH.`
+            : "Could not prepare wallet client."
+        );
+      }
       const full = `${subLabel}.${ROOT_NAME}`;
-      const hash = await createSubname(ensWallet, {
+      const { hash: opHash, mode: writeMode } = await sendRegistrySubnameCreate({
+        ensEncodeWallet,
+        sponsored,
+        sponsoredPublicClient,
         name: full,
         owner: subOwner,
-        contract: "registry",
       });
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      if (receipt.status === "reverted") {
-        throw new Error("Transaction reverted on-chain.");
+      if (writeMode === "eoa") {
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: opHash });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain.");
+        }
       }
-      const entry: TxLogEntry = { kind: "sub", name: full, hash };
+      const entry: TxLogEntry = { kind: "sub", name: full, hash: opHash };
       setTxLog((prev) => [entry, ...prev]);
-      setLastSuccessTx({ kind: "sub", name: full, hash });
+      setLastSuccessTx({ kind: "sub", name: full, hash: opHash });
       setSubnames((prev) => Array.from(new Set([full, ...prev])));
       setSubLabelInput("");
       setParentInput(full);
@@ -366,7 +539,15 @@ export function OnchainEnsFlow() {
 
   async function createNested() {
     setError(null);
-    if (!walletClient) return setError("Connect your wallet first.");
+    if (variant === "envPrivateKey") {
+      if (!envAccount) {
+        return setError(
+          "Set NEXT_PUBLIC_ENS_TEST_PRIVATE_KEY in .env.local (dev-only), then restart `next dev`."
+        );
+      }
+    } else if (!walletClient) {
+      return setError("Connect your wallet first.");
+    }
     if (!parentName) return setError(`Enter a parent under ${ROOT_NAME} (e.g. hehe.${ROOT_NAME}).`);
     if (!parentIsUnderAxl) {
       return setError(`Parent must be ${ROOT_NAME} or a subname ending in .${ROOT_NAME}.`);
@@ -385,18 +566,32 @@ export function OnchainEnsFlow() {
       parentOnchainOwner.toLowerCase() !== address.toLowerCase()
     ) {
       return setError(
-        "Your wallet must be the on-chain owner of the parent name to create nested subnames."
+        variant === "envPrivateKey"
+          ? "The .env private key must be the on-chain owner of the parent name to create nested subnames."
+          : "Your wallet must be the on-chain owner of the parent name to create nested subnames."
       );
     }
 
     setBusy("creating-nested");
     setLastSuccessTx(null);
     setNestedBatchProgress({ current: 0, total: labels.length });
-    const ensWallet = createWalletClient({
-      account: walletClient.account,
-      chain: addEnsContracts(sepolia),
-      transport: custom(walletClient.transport),
-    });
+    let nestedEnsEncodeWallet: ReturnType<typeof createWalletClient>;
+    let nestedSponsored: SponsoredSmartAccountClient | null = null;
+    let nestedSponsoredPublicClient: PublicClient | null = null;
+    try {
+      const resolved = await resolveWriteClients();
+      nestedEnsEncodeWallet = resolved.ensEncodeWallet;
+      nestedSponsored = resolved.sponsored;
+      nestedSponsoredPublicClient = resolved.sponsoredPublicClient;
+    } catch (e) {
+      setNestedBatchProgress(null);
+      setBusy("none");
+      return setError(
+        e instanceof Error
+          ? `${e.message} Turn off “Paymaster gas” if your wallet does not support EIP-7702 on Sepolia, or fund the wallet with Sepolia ETH.`
+          : "Could not prepare wallet client."
+      );
+    }
     const successes: { name: string; hash: `0x${string}` }[] = [];
     const failures: { label: string; message: string }[] = [];
 
@@ -406,18 +601,22 @@ export function OnchainEnsFlow() {
         setNestedBatchProgress({ current: i + 1, total: labels.length });
         try {
           const full = `${label}.${parentName}`;
-          const hash = await createSubname(ensWallet, {
+          const { hash: opHash, mode: nestedWriteMode } = await sendRegistrySubnameCreate({
+            ensEncodeWallet: nestedEnsEncodeWallet,
+            sponsored: nestedSponsored,
+            sponsoredPublicClient: nestedSponsoredPublicClient,
             name: full,
             owner: nestedOwner,
-            contract: "registry",
           });
-          const receipt = await publicClient.waitForTransactionReceipt({ hash });
-          if (receipt.status === "reverted") {
-            throw new Error("Transaction reverted on-chain.");
+          if (nestedWriteMode === "eoa") {
+            const receipt = await publicClient.waitForTransactionReceipt({ hash: opHash });
+            if (receipt.status === "reverted") {
+              throw new Error("Transaction reverted on-chain.");
+            }
           }
-          const entry: TxLogEntry = { kind: "nested", name: full, hash };
+          const entry: TxLogEntry = { kind: "nested", name: full, hash: opHash };
           setTxLog((prev) => [entry, ...prev]);
-          successes.push({ name: full, hash });
+          successes.push({ name: full, hash: opHash });
           setNestedMap((prev) => {
             const list = prev[parentName] ?? [];
             const nextList = Array.from(new Set([full, ...list]));
@@ -453,10 +652,26 @@ export function OnchainEnsFlow() {
 
   return (
     <div className="w-full rounded-3xl border border-zinc-200 bg-white p-8 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
+      {variant === "envPrivateKey" && !envAccount ? (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-medium">Private key not loaded</p>
+          <p className="mt-2 text-xs leading-5">
+            Add <span className="font-mono">NEXT_PUBLIC_ENS_TEST_PRIVATE_KEY=0x…</span> to{" "}
+            <span className="font-mono">.env.local</span> (use a Sepolia test key only). Next.js only
+            exposes <span className="font-mono">NEXT_PUBLIC_*</span> to the browser—restart{" "}
+            <span className="font-mono">pnpm dev</span> after editing. Never use a mainnet key.
+          </p>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
             axl.eth · Sepolia
+            {variant === "envPrivateKey" ? (
+              <span className="ml-2 rounded-md bg-zinc-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-normal text-zinc-800">
+                Env key
+              </span>
+            ) : null}
           </p>
           <h2 className="mt-1 text-xl font-semibold tracking-tight text-zinc-900">
             Subnames for {ROOT_NAME}
@@ -466,6 +681,41 @@ export function OnchainEnsFlow() {
             then add one or many nested labels under that parent in one go (each label is its own
             transaction).
           </p>
+          {paymasterConfigured ? (
+            <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={usePaymasterGas}
+                onChange={(e) => setUsePaymasterGas(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-emerald-700 focus:ring-emerald-600"
+              />
+              <span>
+                <span className="font-medium text-zinc-900">Paymaster gas (sponsored)</span>
+                <span className="mt-1 block text-xs leading-5 text-zinc-600">
+                  {variant === "envPrivateKey" ? (
+                    <>
+                      Uses Pimlico + EIP-7702; the UserOp sender matches your{" "}
+                      <span className="font-mono">.env.local</span> account (needed for ENS ownership).
+                      Local private keys can sign the one-time EIP-7702 delegation. Uncheck to pay Sepolia
+                      ETH yourself.
+                    </>
+                  ) : (
+                    <>
+                      Uses Pimlico + EIP-7702 so actions still come from your connected address (required
+                      for ENS ownership). Your wallet may ask for a one-time authorization, then one
+                      confirmation per subname. Uncheck to pay Sepolia ETH yourself (classic transaction).
+                    </>
+                  )}
+                </span>
+              </span>
+            </label>
+          ) : (
+            <p className="mt-3 text-xs leading-5 text-zinc-500">
+              Add <span className="font-mono">NEXT_PUBLIC_PIMLICO_API_KEY</span> to{" "}
+              <span className="font-mono">.env.local</span> to enable sponsored gas via ERC-4337 paymaster
+              (Sepolia).
+            </p>
+          )}
         </div>
         <div className="shrink-0 text-right text-xs text-zinc-500">
           <div>
@@ -475,7 +725,11 @@ export function OnchainEnsFlow() {
             </span>
           </div>
           <div className="mt-1 font-mono">
-            {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "Connect wallet"}
+            {address
+              ? `${address.slice(0, 6)}…${address.slice(-4)}`
+              : variant === "envPrivateKey"
+                ? "No key"
+                : "Connect wallet"}
           </div>
         </div>
       </div>
@@ -490,11 +744,13 @@ export function OnchainEnsFlow() {
             <span className="font-mono text-zinc-900">{rootOwner ?? "—"}</span>
             {isRootOwnedByConnectedWallet ? (
               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                Your wallet
+                {variant === "envPrivateKey" ? "Env key account" : "Your wallet"}
               </span>
             ) : (
               <span className="text-xs text-amber-700">
-                Connect the owner wallet to create subnames.
+                {variant === "envPrivateKey"
+                  ? "The .env private key must be the on-chain owner to create subnames."
+                  : "Connect the owner wallet to create subnames."}
               </span>
             )}
           </div>
@@ -512,16 +768,7 @@ export function OnchainEnsFlow() {
               <p className="font-medium">
                 Subname created: <span className="font-mono">{lastSuccessTx.name}</span>
               </p>
-              <p className="mt-2 break-all font-mono text-xs">
-                <a
-                  href={sepoliaTxUrl(lastSuccessTx.hash)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950"
-                >
-                  {lastSuccessTx.hash}
-                </a>
-              </p>
+              <TxEnsExplorerLinks ensName={lastSuccessTx.name} txHash={lastSuccessTx.hash} />
             </>
           ) : (
             <>
@@ -529,20 +776,11 @@ export function OnchainEnsFlow() {
                 Nested subname{lastSuccessTx.items.length > 1 ? "s" : ""} created (
                 {lastSuccessTx.items.length})
               </p>
-              <ul className="mt-3 space-y-2">
+              <ul className="mt-3 space-y-3">
                 {lastSuccessTx.items.map((it) => (
-                  <li key={it.hash} className="border-t border-emerald-100 pt-2 first:border-0 first:pt-0">
+                  <li key={it.hash} className="border-t border-emerald-100 pt-3 first:border-0 first:pt-0">
                     <span className="font-mono text-zinc-900">{it.name}</span>
-                    <p className="mt-1 break-all font-mono text-xs">
-                      <a
-                        href={sepoliaTxUrl(it.hash)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950"
-                      >
-                        {it.hash}
-                      </a>
-                    </p>
+                    <TxEnsExplorerLinks ensName={it.name} txHash={it.hash} />
                   </li>
                 ))}
               </ul>
@@ -553,7 +791,7 @@ export function OnchainEnsFlow() {
 
       <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5">
         <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Names under {ROOT_NAME} · your wallet
+          Names under {ROOT_NAME} · {variant === "envPrivateKey" ? "env key account" : "your wallet"}
         </div>
         <p className="mt-2 text-sm text-zinc-600">
           After a refresh, indexed names show what the subgraph ties to your address. This browser also
@@ -580,7 +818,11 @@ export function OnchainEnsFlow() {
                 <p className="mt-1 text-sm text-zinc-500">None found yet in the index.</p>
               )
             ) : (
-              <p className="mt-1 text-sm text-zinc-500">Connect a wallet to load indexed names.</p>
+              <p className="mt-1 text-sm text-zinc-500">
+                {variant === "envPrivateKey"
+                  ? "Set NEXT_PUBLIC_ENS_TEST_PRIVATE_KEY to load indexed names for that address."
+                  : "Connect a wallet to load indexed names."}
+              </p>
             )}
           </div>
 
@@ -618,20 +860,15 @@ export function OnchainEnsFlow() {
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
               Successful transactions (this browser)
             </p>
-            <ul className="mt-2 space-y-2">
+            <ul className="mt-2 space-y-4">
               {txLog.slice(0, 15).map((t, i) => (
-                <li key={`${t.hash}-${i}`} className="text-sm">
+                <li
+                  key={`${t.hash}-${i}`}
+                  className="border-t border-zinc-100 pt-3 text-sm first:border-0 first:pt-0"
+                >
                   <span className="text-zinc-500">{t.kind === "sub" ? "Sub" : "Nested"}</span>{" "}
                   <span className="font-mono text-zinc-800">{t.name}</span>
-                  <br />
-                  <a
-                    href={sepoliaTxUrl(t.hash)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="break-all font-mono text-xs text-emerald-800 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-950"
-                  >
-                    {t.hash}
-                  </a>
+                  <TxEnsExplorerLinks ensName={t.name} txHash={t.hash} variant="neutral" />
                 </li>
               ))}
             </ul>
@@ -686,12 +923,20 @@ export function OnchainEnsFlow() {
 
           <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-zinc-500">
-              Uses ENS registry · you confirm one transaction in your wallet.
+              {variant === "envPrivateKey"
+                ? "Uses ENS registry · signs with your .env private key (no browser wallet prompts)."
+                : "Uses ENS registry · you confirm one transaction in your wallet."}
             </p>
             <button
               type="button"
               onClick={createUnderRoot}
-              disabled={!isConnected || needsSepolia || !walletClient || busy !== "none"}
+              disabled={
+                !isConnectedEffective ||
+                needsSepolia ||
+                signingBlocked ||
+                busy !== "none" ||
+                (variant === "envPrivateKey" && !envAccount)
+              }
               className="inline-flex h-11 items-center justify-center rounded-2xl bg-zinc-900 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy === "creating-sub" ? "Creating…" : `Create .${ROOT_NAME}`}
@@ -795,20 +1040,23 @@ export function OnchainEnsFlow() {
                     : "Set parent under axl.eth first."}
               </p>
               <p className="mt-2 text-xs text-zinc-500">
-                Each name needs its own on-chain transaction; your wallet will prompt once per label.
+                {variant === "envPrivateKey"
+                  ? "Each name is its own on-chain transaction; the .env key signs each one automatically."
+                  : "Each name needs its own on-chain transaction; your wallet will prompt once per label."}
               </p>
             </div>
             <button
               type="button"
               onClick={createNested}
               disabled={
-                !isConnected ||
+                !isConnectedEffective ||
                 needsSepolia ||
-                !walletClient ||
+                signingBlocked ||
                 busy !== "none" ||
                 !parentName ||
                 !parentIsUnderAxl ||
-                nestedChildLabels.length === 0
+                nestedChildLabels.length === 0 ||
+                (variant === "envPrivateKey" && !envAccount)
               }
               className="inline-flex h-11 shrink-0 items-center justify-center rounded-2xl bg-zinc-900 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
