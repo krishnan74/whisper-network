@@ -11,13 +11,15 @@
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
 :root {
+  
+  /* Light Theme  */
   --bg:          oklch(0.985 0.003 90);
   --bg-2:        oklch(0.965 0.004 90);
-  --ink:         oklch(0.20 0.01 250);
-  --ink-2:       oklch(0.40 0.01 250);
-  --ink-3:       oklch(0.62 0.008 250);
-  --rule:        oklch(0.88 0.005 250);
-  --rule-2:      oklch(0.93 0.004 250);
+  --ink:         oklch(0.12 0.01 250);
+  --ink-2:       oklch(0.28 0.01 250);
+  --ink-3:       oklch(0.50 0.008 250);
+  --rule:        oklch(0.72 0.005 250);
+  --rule-2:      oklch(0.80 0.004 250);
 
   --alive:       oklch(0.62 0.15 155);
   --alive-soft:  oklch(0.92 0.06 155);
@@ -25,6 +27,22 @@
   --dead-soft:   oklch(0.93 0.06 25);
   --gold:        oklch(0.72 0.13 80);
   --gold-soft:   oklch(0.94 0.05 80);
+
+  /* Dark Theme  */
+  --bg:          oklch(0.15 0.003 90);
+  --bg-2:        oklch(0.25 0.004 90);
+  --ink:         oklch(0.95 0.01 250);
+  --ink-2:       oklch(0.80 0.01 250);
+  --ink-3:       oklch(0.65 0.008 250);
+  --rule:        oklch(0.35 0.005 250);
+  --rule-2:      oklch(0.30 0.004 250);
+
+  --alive:       oklch(0.62 0.15 155);
+  --alive-soft:  oklch(0.30 0.06 155);
+  --dead:        oklch(0.58 0.19 25);
+  --dead-soft:   oklch(0.25 0.06 25);
+  --gold:        oklch(0.72 0.13 80);
+  --gold-soft:   oklch(0.28 0.05 80);
 
   --display: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
   --mono:    "JetBrains Mono", ui-monospace, monospace;
@@ -795,6 +813,13 @@ const taskStates   = {};
 const activeOrbits = {};
 const killedPorts  = new Set();
 
+// Convert registered ENS name to display format (e.g., "rahul-28f93333.notdocker.eth" → "rahul.axl.eth")
+function formatENSName(ensName) {
+  if (!ensName) return '';
+  const match = ensName.match(/^([a-z]+)(-[a-f0-9]+)?\.notdocker\.eth$/);
+  return match ? `${match[1]}.axl.eth` : ensName;
+}
+
 // Dot-grid pattern for graph background
 function initDotGrid(svg) {
   const defs = svg.append('defs');
@@ -846,7 +871,7 @@ function showTip(evt, d) {
   const repCls = d.reputation >= 70 ? 'green' : d.reputation >= 40 ? 'yellow' : 'red';
   tooltip.innerHTML = `
     <div class="tt-title">${d.short || d.id.slice(0,8)}</div>
-    ${d.ens_name ? `<div style="font-family:var(--mono);font-size:9px;color:var(--alive);margin:2px 0 4px">◦ ${d.ens_name}</div>` : ''}
+    ${d.ens_name ? `<div style="font-family:var(--mono);font-size:9px;color:var(--alive);margin:2px 0 4px">◦ ${formatENSName(d.ens_name)}</div>` : ''}
     <span class="badge ${st} tt-badge">${st.toUpperCase()}</span>
     <div class="tt-sep"></div>
     <div class="tt-row">Shard assignment   <span>s-${d.shard_id}</span></div>
@@ -935,7 +960,7 @@ function updateGraph(data) {
 
   const ensLblSel = d3.select('#labels').selectAll('text.node-ens-lbl').data(nodes, d => d.id+'_ens');
   ensLblSel.enter().append('text').attr('class','node-ens-lbl').attr('dy','44px')
-    .merge(ensLblSel).text(d => d.ens_name ? '◦ ' + d.ens_name.replace('.notdocker.eth','') : '');
+    .merge(ensLblSel).text(d => d.ens_name ? '◦ ' + formatENSName(d.ens_name): '');
   ensLblSel.exit().remove();
 
   simulation.nodes(nodes);
@@ -1077,7 +1102,7 @@ function updateSidebar(data) {
         <span class="badge ${st}">${st}</span>
         ${jobsBadge}${killBtn}
       </div>
-      ${n.ens_name ? `<div class="nc-ens">${n.ens_name}</div>` : ''}
+      ${n.ens_name ? `<div class="nc-ens">${formatENSName(n.ens_name)}</div>` : ''}
       <div class="nc-stats">
         <div class="nc-stat"><span class="nc-key">shard</span><span class="nc-val">s-${n.shard_id}</span></div>
         <div class="nc-stat"><span class="nc-key">port</span><span class="nc-val">:${n.port}</span></div>
@@ -1203,7 +1228,7 @@ function updateResults(tasks, nodes) {
         ${escapeHtml(displayText)}${isTruncated ? '…' : ''}
       </div>
       <div class="result-meta">
-        Node: ${escapeHtml(nodeName.replace('.notdocker.eth', ''))}
+        Node: ${escapeHtml(formatENSName(nodeName))}
       </div>
     `;
 
@@ -1456,7 +1481,7 @@ function renderDrawer(data, graphNode) {
     <div class="dr-section">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <span class="badge ${st}">${st}</span>
-        ${data.ens_name ? `<span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">${data.ens_name}</span>` : ''}
+        ${data.ens_name ? `<span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">${formatENSName(data.ens_name)}</span>` : ''}
       </div>
       <div class="dr-section-title">AXL Identity</div>
       <div class="dr-key-block" title="click to select">${data.our_key || '—'}</div>
