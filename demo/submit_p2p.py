@@ -78,7 +78,7 @@ def submit_via_axl(axl_base: str, whisper_api: str, query: str, num_shards: int 
     done: dict[int, str] = {}
 
     print(f"\nWaiting for push results via {whisper_api}/results ...\n")
-    deadline = time.time() + 120
+    deadline = time.time() + 360
     while time.time() < deadline and len(done) < len(task_ids):
         try:
             results = requests.get(f"{whisper_api}/results", timeout=3).json()

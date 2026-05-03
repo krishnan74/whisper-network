@@ -6,8 +6,8 @@ Background loop that:
   2. Claims tasks matching our shard_id (pending or expired leases)
   3. Executes claimed tasks and writes results back to the ledger
 
-For the demo, "execution" is a keyword search over the node's local document
-shard. The execute() method can be replaced for any other workload.
+Execution delegates to whisper.inference, which tries Ollama first and falls
+back to keyword search if Ollama is unreachable.
 """
 import logging
 import os
@@ -269,21 +269,5 @@ class AgentRuntime:
         self.ledger.complete_task(task.task_id, result)
 
     def execute(self, payload: str, shard_id: int) -> str:
-        """
-        Search the specified document shard for lines matching the query.
-        Any node can execute tasks for any shard — survivors pick up dead nodes' work.
-        """
-        query = payload.strip()
-        if query.lower().startswith("query:"):
-            query = query[6:].strip()
-        query_lower = query.lower()
-
-        lines   = self._shards.get(shard_id, [])
-        matches = [line for line in lines if query_lower in line.lower()]
-
-        if matches:
-            preview = " | ".join(matches[:3])
-            if len(preview) > 120:
-                preview = preview[:117] + "..."
-            return f"shard-{shard_id}: {len(matches)} match(es): {preview}"
-        return f"shard-{shard_id}: no matches for '{query}'"
+        from whisper.inference import run as _infer
+        return _infer(payload, self._shards.get(shard_id, []), self.capabilities, shard_id)
