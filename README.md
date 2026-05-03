@@ -331,3 +331,15 @@ Discovered during implementation — not in the AXL documentation:
 4. **AXL does not loopback `/send` to self.** When the auction awardee is the same node that ran the auction, the `task_award` message cannot be sent via AXL. `_run_auction` in `node.py` handles this by calling `_handle_task_award` directly when `winner_key == self.our_key`.
 
 5. **Stagger AXL startup before whisper.** AXL needs ~1.5s to complete the TLS handshake and bind its ports before the whisper process starts polling `/topology`. `run_local.sh` enforces this with `sleep 1.5` between each pair.
+
+---
+
+## ENS subname demo (`main/`)
+
+There’s also a Next.js demo app under `main/` for issuing ENS subnames. Install and run it only from that folder (no workspace install at the repo root).
+
+```bash
+cd main
+pnpm install
+pnpm dev
+```

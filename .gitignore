@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/main/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -13,9 +14,11 @@
 # testing
 /coverage
 
-# next.js
+# next.js (app lives in main/)
 /.next/
 /out/
+/main/.next/
+/main/out/
 
 # production
 /build
@@ -52,14 +55,7 @@ data/
 logs/
 *.log
 
-# OS
-.DS_Store
-
-# Secrets
-.env
-.env.*
-
-# ens-test (Next.js app)
+# legacy nested copy (if present)
 ens-test/node_modules/
 ens-test/.next/
 ens-test/out/
