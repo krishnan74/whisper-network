@@ -111,6 +111,20 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Kill any leftover AXL or whisper processes occupying our ports before starting.
+# AXL uses tcp_listen port 9001 (node-1 only) and api_ports 9002..9001+COUNT.
+echo "Freeing ports from previous runs..."
+for PORT in 9001 $(seq 9002 $((9001 + COUNT))); do
+    # lsof -ti: returns PIDs of processes bound to the port; kill silently if none
+    OCCUPANT=$(lsof -ti tcp:"${PORT}" 2>/dev/null || true)
+    if [[ -n "${OCCUPANT}" ]]; then
+        echo "  killing stale process on port ${PORT} (pid ${OCCUPANT})"
+        kill "${OCCUPANT}" 2>/dev/null || true
+    fi
+done
+# Brief pause so the OS releases the sockets before AXL tries to bind.
+sleep 0.5
+
 mkdir -p logs data
 
 # Per-node capabilities and prices — creates a visible agent marketplace
