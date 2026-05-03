@@ -47,6 +47,10 @@ next-env.d.ts
 __pycache__/
 *.py[cod]
 .venv/
+/.venv-pyens/
+
+# pyens CLI local persisted state (see pyens/constants.py STATE_FILE)
+.pyens_state.json
 
 # Runtime generated
 keys/
