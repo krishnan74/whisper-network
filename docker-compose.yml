@@ -33,6 +33,9 @@ x-whisper-common: &whisper-common
     dockerfile: Dockerfile
   networks: [whisper]
   restart: "no"
+  env_file:
+    - path: .env
+      required: false
   volumes:
     - ./demo/shards:/shards:ro      # document corpus (read-only)
     - ./axl-configs:/config:ro      # per-node AXL configs (hostname-based peers)
@@ -140,6 +143,21 @@ services:
       - ./axl-configs:/config:ro
       - whisper-keys-6:/keys
       - whisper-data-6:/data
+
+  webui:
+    <<: *whisper-common
+    container_name: whisper-webui
+    hostname: webui
+    depends_on: [node-1, node-2, node-3, node-4, node-5, node-6]
+    entrypoint: ["python", "-m", "demo.webui"]
+    command: >
+      --node-urls http://node-1:8888,http://node-2:8888,http://node-3:8888,http://node-4:8888,http://node-5:8888,http://node-6:8888
+      --axl-base http://node-1:9002
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./demo/shards:/shards:ro
+      - ./axl-configs:/config:ro
 
   # ── Optional: Redis for the centralized comparison demo ───────────────────
   redis:

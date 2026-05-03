@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
 from whisper.crypto import Signer, PayloadCipher, ThresholdCipher
+from whisper.ens import start_registration
 from whisper.ledger import TaskLedger
 from whisper.membership import MembershipLayer
 from whisper.runtime import AgentRuntime
@@ -94,6 +95,9 @@ class WhisperNode:
         heartbeat_interval: float = 2.0,
         suspect_after:      float = 10.0,
         key_file:           Optional[str] = None,
+        capabilities:       Optional[list] = None,
+        price_axl:          float = 0.01,
+        exec_delay:         float = 0.0,
     ):
         self.debug_port  = debug_port
 
@@ -103,10 +107,15 @@ class WhisperNode:
         self._cipher     = PayloadCipher(key_file)
         logger.info("our key: %s...", self.our_key[:16])
 
+        self.ens_name: Optional[str]  = None
         self._axl_mesh_stats: dict    = {"total_peers": 0, "up_peers": 0}
         self._recovered_task_count: int = 0
         self._task_results: list      = []   # buffered task_result AXL push notifications
         self._results_lock            = threading.Lock()
+
+        # Auction state: task_id → {"event": Event, "bids": list}
+        self._bid_collections: dict   = {}
+        self._bids_lock               = threading.Lock()
 
         # Threshold share collection: task_id → (event, needed, [shares])
         self._share_collections: dict = {}
@@ -124,6 +133,8 @@ class WhisperNode:
         if self._cipher.enabled:
             self.membership.our_enc_pubkey = self._cipher.x25519_pubkey_hex
         self.membership.our_lease_duration = lease_duration
+        self.membership.our_capabilities   = list(capabilities) if capabilities else []
+        self.membership.our_price_axl      = price_axl
 
         self.ledger      = TaskLedger(
             transport        = self.transport,
@@ -149,6 +160,8 @@ class WhisperNode:
             membership         = self.membership,
             payload_cipher     = self._cipher,
             collect_shares_fn  = self._collect_threshold_shares,
+            capabilities       = list(capabilities) if capabilities else [],
+            exec_delay         = exec_delay,
         )
 
         self.membership.set_tasks_held_fn(self.ledger.get_my_task_ids)
@@ -196,6 +209,20 @@ class WhisperNode:
             self.runtime.shard_id, self.debug_port,
         )
 
+        start_registration(
+            shard_id     = self.runtime.shard_id,
+            peer_id      = self.our_key,
+            capabilities = self.membership.our_capabilities,
+            price_axl    = self.membership.our_price_axl,
+            callback     = lambda name: setattr(self, "ens_name", name),
+        )
+
+        # ENS peer discovery is intentionally disabled: AXL topology sync
+        # already discovers all live peers within one sync cycle (~5s).
+        # Seeding membership from ENS adds stale registrations from old runs,
+        # which flood the cluster with phantom failure events and destabilise
+        # quorum until they all time out (~20s).
+
     # ── Background threads ────────────────────────────────────────────────────
 
     def _start_recv_loop(self):
@@ -217,6 +244,12 @@ class WhisperNode:
                         self.ledger.handle_ledger_update(from_peer, msg)
                     elif mtype == "task_submit":
                         self._handle_p2p_task_submit(msg)
+                    elif mtype == "task_bid_request":
+                        self._handle_task_bid_request(msg)
+                    elif mtype == "task_bid":
+                        self._handle_task_bid(msg)
+                    elif mtype == "task_award":
+                        self._handle_task_award(msg)
                     elif mtype == "task_result":
                         logger.info(
                             "task_result for %s shard-%s via AXL: %s",
@@ -272,18 +305,147 @@ class WhisperNode:
                 logger.debug("lease convergence error: %s", e)
 
     def _handle_p2p_task_submit(self, msg: dict):
-        """Accept a task submitted directly via the AXL encrypted overlay (no debug HTTP needed)."""
+        """Accept a task via AXL, enter it into the ledger, then run a price auction."""
         try:
             task_id       = msg["task_id"]
             payload       = msg["payload"]
             shard_id      = int(msg["shard_id"])
             submitter_key = msg.get("from") or None
-            sender        = (submitter_key or "?")[:8]
             self.ledger.submit_task(task_id, payload, shard_id, submitter_key=submitter_key)
             logger.info("P2P task %s (shard-%d) received via AXL from %s",
-                        task_id[:12], shard_id, sender)
+                        task_id[:12], shard_id, (submitter_key or "?")[:8])
+            # Wake scan loop immediately as fallback, then run the price auction.
+            # The auction winner bypasses the scan cycle entirely via execute_awarded_task.
+            self.runtime.wake()
+            threading.Thread(
+                target=self._run_auction, args=(task_id, shard_id),
+                daemon=True, name=f"auction-{task_id[:8]}",
+            ).start()
         except Exception as e:
             logger.warning("malformed task_submit message: %s", e)
+
+    def _run_auction(self, task_id: str, shard_id: int):
+        """
+        Broadcast a bid request to all alive peers, collect bids for 400ms,
+        award the task to the lowest-price bidder. The winner skips the normal
+        scan-cycle delay and claims immediately, while the ledger's lease
+        mechanism still guards against split-brain races.
+        """
+        event = threading.Event()
+        with self._bids_lock:
+            self._bid_collections[task_id] = {"event": event, "bids": []}
+
+        peers = self.membership.get_alive_peers()
+        request = {
+            "type":     "task_bid_request",
+            "msg_id":   str(uuid.uuid4()),
+            "from":     self.our_key,
+            "task_id":  task_id,
+            "shard_id": shard_id,
+        }
+        for peer in peers:
+            self.transport.send(peer, request)
+
+        # Wait up to 400ms for bids; signal early once ≥3 arrive
+        event.wait(timeout=0.4)
+
+        with self._bids_lock:
+            col = self._bid_collections.pop(task_id, {})
+        bids = col.get("bids", [])
+
+        # Include self as a candidate
+        bids.append({
+            "from":         self.our_key,
+            "price_axl":    self.membership.our_price_axl,
+            "capabilities": self.membership.our_capabilities,
+            "shard_id":     self.runtime.shard_id,
+        })
+
+        # Prefer shard home node (best locality), then lowest price
+        def _bid_key(b):
+            home_bonus = 0.0 if b["shard_id"] == shard_id else 0.005
+            return b["price_axl"] + home_bonus
+
+        bids.sort(key=_bid_key)
+        winner = bids[0]
+        winner_key   = winner["from"]
+        winner_price = winner["price_axl"]
+
+        logger.info(
+            "auction task %s shard-%d: %d bid(s) → %s @ %.3f AXL",
+            task_id[:12], shard_id, len(bids), winner_key[:8], winner_price,
+        )
+
+        award_msg = {
+            "type":      "task_award",
+            "msg_id":    str(uuid.uuid4()),
+            "from":      self.our_key,
+            "task_id":   task_id,
+            "winner":    winner_key,
+            "price_axl": winner_price,
+            "shard_id":  shard_id,
+        }
+        if winner_key == self.our_key:
+            # Handle self-award directly — AXL may not loopback to self
+            self._handle_task_award(award_msg)
+        else:
+            self.transport.send(winner_key, award_msg)
+
+        all_prices = ", ".join(f"{b['from'][:8]}@{b['price_axl']:.3f}" for b in bids[:4])
+        self.ledger._log(
+            f"auction shard-{shard_id}: {len(bids)} bid(s) [{all_prices}] "
+            f"→ {winner_key[:8]} @ {winner_price:.3f} AXL"
+        )
+
+    def _handle_task_bid_request(self, msg: dict):
+        """Peer opened an auction — respond with our price and capabilities."""
+        task_id   = msg.get("task_id")
+        requester = msg.get("from")
+        if not task_id or not requester or requester == self.our_key:
+            return
+        self.transport.send(requester, {
+            "type":         "task_bid",
+            "msg_id":       str(uuid.uuid4()),
+            "from":         self.our_key,
+            "task_id":      task_id,
+            "shard_id":     self.runtime.shard_id,
+            "price_axl":    self.membership.our_price_axl,
+            "capabilities": self.membership.our_capabilities,
+        })
+
+    def _handle_task_bid(self, msg: dict):
+        """Inbound bid from a peer — store it, signal when we have enough."""
+        task_id = msg.get("task_id")
+        if not task_id:
+            return
+        with self._bids_lock:
+            col = self._bid_collections.get(task_id)
+            if col is None:
+                return
+            col["bids"].append({
+                "from":         msg.get("from"),
+                "price_axl":    float(msg.get("price_axl", 0.01)),
+                "capabilities": msg.get("capabilities", []),
+                "shard_id":     msg.get("shard_id"),
+            })
+            if len(col["bids"]) >= 3:
+                col["event"].set()
+
+    def _handle_task_award(self, msg: dict):
+        """We won the auction — claim and immediately execute to bypass the scan-cycle delay."""
+        task_id    = msg.get("task_id")
+        winner_key = msg.get("winner")
+        price      = msg.get("price_axl", 0.01)
+        if not task_id or winner_key != self.our_key:
+            return
+        logger.info("won auction for task %s (%.3f AXL) — claiming immediately", task_id[:12], price)
+        if self.ledger.claim_task(task_id):
+            threading.Thread(
+                target=self.runtime.execute_awarded_task,
+                args=(task_id,),
+                daemon=True,
+                name=f"exec-{task_id[:8]}",
+            ).start()
 
     def _start_debug_server(self):
         _Handler.node = self
@@ -459,16 +621,21 @@ class WhisperNode:
         tasks = {}
         for task in self.ledger.get_all_tasks():
             tasks[task.task_id] = {
-                "task_id":         task.task_id,
-                "shard_id":        task.shard_id,
-                "status":          task.status,
-                "leased_by":       (task.leased_by or "")[:8] or None,
+                "task_id":          task.task_id,
+                "shard_id":         task.shard_id,
+                "status":           task.status,
+                "leased_by":        (task.leased_by or "")[:8] or None,
                 "lease_expires_in": max(0.0, task.lease_expires - now)
                                     if task.status == "in_progress" else 0.0,
-                "result":          task.result,
-                "version":         task.version,
-                "encrypted":       task.encrypted,
-                "threshold_t":     task.threshold_t,
+                "result":           task.result,
+                "version":          task.version,
+                "encrypted":        task.encrypted,
+                "threshold_t":      task.threshold_t,
+                "created_at":       task.created_at,
+                "claimed_at":       task.claimed_at,
+                "completed_at":     task.completed_at,
+                "commitment":       task.commitment,
+                "result_hash":      task.result_hash,
             }
 
         m_events = self.membership.get_events(15)
@@ -479,12 +646,15 @@ class WhisperNode:
             "our_key":         self.our_key,
             "key_short":       self.our_key[:8],
             "shard_id":        self.runtime.shard_id,
+            "ens_name":        self.ens_name,
             "axl_mesh":        self._axl_mesh_stats,
             "recovered_tasks": self._recovered_task_count,
             "metrics":         self.ledger.get_metrics(),
             "peers":           peers,
             "tasks":           tasks,
             "events":          events,
+            "capabilities":    self.membership.our_capabilities,
+            "price_axl":       self.membership.our_price_axl,
         }
 
 
@@ -512,6 +682,12 @@ def main():
                         help="Silence threshold before marking peer SUSPECTED")
     parser.add_argument("--key-file",            default=None,
                         help="Path to ed25519 PEM private key for ledger_update signing")
+    parser.add_argument("--capabilities",        default="",
+                        help="Comma-separated agent capabilities e.g. search,summarize,reason")
+    parser.add_argument("--price-axl",           type=float, default=0.01,
+                        help="AXL price per completed job advertised to the market")
+    parser.add_argument("--exec-delay",          type=float, default=0.0,
+                        help="Seconds to sleep before completing a task (0=off; use 10-20 to demo kill/rescue)")
     parser.add_argument("--log-level",           default="INFO")
     args = parser.parse_args()
 
@@ -520,6 +696,7 @@ def main():
         format  = "%(asctime)s [%(threadName)s] %(levelname)s %(name)s: %(message)s",
     )
 
+    caps = [c.strip() for c in args.capabilities.split(",") if c.strip()]
     node = WhisperNode(
         api_base            = args.api_base,
         shard_id            = args.shard_id,
@@ -532,6 +709,9 @@ def main():
         heartbeat_interval  = args.heartbeat_interval,
         suspect_after       = args.suspect_after,
         key_file            = args.key_file,
+        capabilities        = caps,
+        price_axl           = args.price_axl,
+        exec_delay          = args.exec_delay,
     )
     node.start()
 

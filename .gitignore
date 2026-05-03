@@ -52,7 +52,14 @@ data/
 logs/
 *.log
 
-# ens-test (Next.js app in subdir)
+# OS
+.DS_Store
+
+# Secrets
+.env
+.env.*
+
+# ens-test (Next.js app)
 ens-test/node_modules/
 ens-test/.next/
 ens-test/out/

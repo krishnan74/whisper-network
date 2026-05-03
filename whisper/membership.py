@@ -43,6 +43,8 @@ class PeerInfo:
     shard_id:    Optional[int]  = None  # home shard, learned from heartbeats
     enc_pubkey:          Optional[str]   = None   # X25519 pubkey for payload encryption
     reported_lease_duration: Optional[float] = None  # lease duration this peer advertises
+    capabilities: list          = field(default_factory=list)  # e.g. ["search","summarize"]
+    price_axl:   float          = 0.01  # AXL per job this peer charges
 
 
 class MembershipLayer:
@@ -72,6 +74,7 @@ class MembershipLayer:
 
         # Keys currently up in the AXL overlay mesh (updated by topology sync loop)
         self._axl_connected: set[str] = set()
+        self._prev_axl_connected: set[str] = set()  # previous snapshot for drop detection
 
         # Injected by node.py so heartbeats can include current tasks
         self._tasks_held_fn: Callable[[], list[str]] = lambda: []
@@ -80,6 +83,9 @@ class MembershipLayer:
         self.our_enc_pubkey: Optional[str] = None
         # Our current lease duration, advertised in heartbeats for convergence
         self.our_lease_duration: float = 30.0
+        # Capabilities and price advertised in every heartbeat
+        self.our_capabilities: list[str] = []
+        self.our_price_axl:    float     = 0.01
 
         self._running = False
 
@@ -186,7 +192,9 @@ class MembershipLayer:
         newly_discovered: list[str] = []
 
         with self._lock:
-            self._axl_connected = set(connected_keys)
+            prev_connected       = self._prev_axl_connected
+            self._prev_axl_connected = set(connected_keys)
+            self._axl_connected  = set(connected_keys)
 
             for key in connected_keys:
                 if key != self.our_key and key not in self._peers:
@@ -194,12 +202,17 @@ class MembershipLayer:
                     newly_discovered.append(key)
                     self._log(f"discovered peer via AXL topology: {key[:8]}")
 
-            for key, peer in list(self._peers.items()):
-                if peer.status == PeerStatus.DEAD:
+            # Fast-suspect ONLY peers that were previously direct AXL peers and
+            # have now dropped out.  Do NOT fast-suspect routing-only peers (nodes
+            # that were never in connected_keys) — in a star topology those peers
+            # are reachable via the hub and their absence from connected_keys is
+            # expected, not a sign of failure.
+            dropped = prev_connected - set(connected_keys)
+            for key in dropped:
+                peer = self._peers.get(key)
+                if not peer or peer.status != PeerStatus.ALIVE:
                     continue
-                if (peer.status == PeerStatus.ALIVE
-                        and key not in connected_keys
-                        and (now - peer.last_seen) > fast_suspect_after):
+                if (now - peer.last_seen) > fast_suspect_after:
                     peer.status = PeerStatus.SUSPECTED
                     newly_suspected.append(key)
                     self._log(
@@ -233,13 +246,15 @@ class MembershipLayer:
         logger.info("broadcast node_join to %d AXL peer(s)", len(targets))
 
     def _send_join_to(self, peer_key: str, hops: int = 1):
-        """Send a node_join directly to one peer, carrying enc_pubkey if available."""
+        """Send a node_join directly to one peer, carrying enc_pubkey and capabilities."""
         msg: dict = {
-            "type":     "node_join",
-            "msg_id":   str(uuid.uuid4()),
-            "from":     self.our_key,
-            "shard_id": self.our_shard_id,
-            "hops":     hops,
+            "type":         "node_join",
+            "msg_id":       str(uuid.uuid4()),
+            "from":         self.our_key,
+            "shard_id":     self.our_shard_id,
+            "hops":         hops,
+            "capabilities": self.our_capabilities,
+            "price_axl":    self.our_price_axl,
         }
         if self.our_enc_pubkey:
             msg["enc_pubkey"] = self.our_enc_pubkey
@@ -296,6 +311,8 @@ class MembershipLayer:
             "known_peers":    known,
             "hops":           GOSSIP_HOPS,
             "lease_duration": self.our_lease_duration,
+            "capabilities":   self.our_capabilities,
+            "price_axl":      self.our_price_axl,
         }
         if self.our_enc_pubkey:
             msg["enc_pubkey"] = self.our_enc_pubkey
@@ -356,12 +373,18 @@ class MembershipLayer:
             peer = self._peers[sender]
             peer.last_seen = time.time()
             if peer.status != PeerStatus.ALIVE:
+                prev = peer.status.value
                 peer.status = PeerStatus.ALIVE
-                self._log(f"node {sender[:8]} rejoined (was {peer.status.value})")
+                self._suspicions.pop(sender, None)
+                self._log(f"node {sender[:8]} rejoined (was {prev})")
             if msg.get("shard_id") is not None:
                 peer.shard_id = int(msg["shard_id"])
             if msg.get("enc_pubkey"):
                 peer.enc_pubkey = msg["enc_pubkey"]
+            if msg.get("capabilities") is not None:
+                peer.capabilities = list(msg["capabilities"])
+            if msg.get("price_axl") is not None:
+                peer.price_axl = float(msg["price_axl"])
         hops = msg.get("hops", 0) - 1
         if hops > 0:
             self._fanout({**msg, "hops": hops})
@@ -390,13 +413,18 @@ class MembershipLayer:
                 peer.enc_pubkey = msg["enc_pubkey"]
             if msg.get("lease_duration"):
                 peer.reported_lease_duration = float(msg["lease_duration"])
+            if msg.get("capabilities") is not None:
+                peer.capabilities = list(msg["capabilities"])
+            if msg.get("price_axl") is not None:
+                peer.price_axl = float(msg["price_axl"])
 
             if peer.status == PeerStatus.SUSPECTED:
                 peer.status = PeerStatus.ALIVE
+                self._suspicions.pop(sender, None)   # reset so stale reports can't re-kill
                 self._log(f"node-{sender[:8]} recovered (was suspected)")
             elif peer.status == PeerStatus.DEAD:
-                # Allow revival — at startup nodes may be briefly wrongly confirmed dead
                 peer.status = PeerStatus.ALIVE
+                self._suspicions.pop(sender, None)   # reset so stale reports can't re-kill
                 self._log(f"node-{sender[:8]} REVIVED (was confirmed dead)")
 
             # Absorb newly advertised peers
@@ -419,10 +447,17 @@ class MembershipLayer:
 
         confirmed_dead = False
         with self._lock:
+            peer = self._peers.get(suspect)
+            # Discard suspicion if the peer has already sent a heartbeat more
+            # recently than this suspicion was generated — it's a stale report
+            # from before the node recovered.
+            sus_ts = msg.get("timestamp", 0)
+            if peer and peer.last_seen > sus_ts:
+                return
+
             reporters = self._suspicions.setdefault(suspect, set())
             reporters.add(reporter)
 
-            peer = self._peers.get(suspect)
             if peer and peer.status != PeerStatus.DEAD and len(reporters) >= DEAD_REPORTS_NEEDED:
                 peer.status  = PeerStatus.DEAD
                 confirmed_dead = True
