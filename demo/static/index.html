@@ -431,6 +431,114 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
 }
 .task-result strong { color: var(--alive); font-weight: 400; }
 
+/* ── Results Panel ── */
+#results-panel {
+  display: flex;
+  flex-direction: column;
+  height: 280px;
+  border-left: 1px solid var(--rule);
+  border-top: 1px solid var(--rule);
+  background: var(--bg-2);
+  flex-shrink: 0;
+}
+
+.results-title {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+#results-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.result-card {
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 10px;
+  background: var(--bg);
+  transition: all 0.3s ease;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.result-card.completed {
+  border-color: color-mix(in oklab, var(--alive) 40%, var(--rule));
+  background: color-mix(in oklab, var(--alive-soft) 60%, var(--bg));
+}
+
+.result-card.in-progress {
+  border-color: color-mix(in oklab, var(--gold) 40%, var(--rule));
+  background: color-mix(in oklab, var(--gold-soft) 60%, var(--bg));
+  animation: card-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes card-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+.result-id {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  margin-bottom: 5px;
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-status {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.result-status.completed {
+  color: var(--alive);
+}
+
+.result-status.in-progress {
+  color: var(--gold);
+}
+
+.result-text {
+  font-size: 10px;
+  color: var(--ink);
+  line-height: 1.4;
+  max-height: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+.result-meta {
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--ink-3);
+  margin-top: 6px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* Timing badges */
 .task-timing { display: flex; gap: 5px; margin-top: 4px; flex-wrap: wrap; }
 .tt-claim, .tt-exec, .tt-total {
@@ -659,6 +767,11 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
       <span class="panel-title-count" id="job-count">0 jobs</span>
     </div>
     <div id="task-panel"><div id="task-panel-inner"></div></div>
+
+    <div id="results-panel">
+      <div class="results-title">Completed Results</div>
+      <div id="results-list"></div>
+    </div>
   </div>
 
 </div>
@@ -1024,6 +1137,86 @@ function updateEvents(events) {
   while (feed.children.length > MAX_EVENTS) feed.removeChild(feed.lastChild);
 }
 
+// ── Completed Results Display ───────────────────────────────────────────────────
+const completedTasksMap = new Map();  // Track which tasks have been displayed
+
+function updateResults(tasks, nodes) {
+  if (!tasks || tasks.length === 0) return;
+
+  const resultsList = document.getElementById('results-list');
+  if (!resultsList) return;
+
+  // Build node map for quick lookup
+  const nodeMap = {};
+  if (nodes) {
+    nodes.forEach(n => {
+      nodeMap[n.short || n.id.slice(0, 8)] = n;
+    });
+  }
+
+  // Process each task
+  tasks.forEach(task => {
+    // Only show completed tasks with results
+    if (task.status !== 'completed' || !task.result) return;
+
+    // Skip if we've already shown this task
+    if (completedTasksMap.has(task.task_id)) return;
+
+    completedTasksMap.set(task.task_id, true);
+
+    // Create result card
+    const card = document.createElement('div');
+    card.className = 'result-card completed';
+
+    // Calculate execution time
+    let execTime = '—';
+    if (task.completed_at && task.created_at) {
+      const duration = (task.completed_at - task.created_at);
+      execTime = duration.toFixed(1) + 's';
+    }
+
+    // Get the node that executed it
+    const nodeName = task.leased_by ? (nodeMap[task.leased_by]?.ens_name || task.leased_by) : '?';
+
+    // Truncate result text
+    const resultText = task.result || '';
+    const displayText = resultText.length > 200 ? resultText.substring(0, 200) : resultText;
+    const isTruncated = resultText.length > 200;
+
+    // Escape HTML
+    const escapeHtml = (text) => {
+      const map = {
+        '&': '&amp;', '<': '&lt;', '>': '&gt;',
+        '"': '&quot;', "'": '&#039;'
+      };
+      return text.replace(/[&<>"']/g, m => map[m]);
+    };
+
+    card.innerHTML = `
+      <div class="result-id" title="${task.task_id}">
+        ID: ${task.task_id.substring(0, 12)}…
+      </div>
+      <div class="result-status completed">
+        ✓ Completed in ${execTime}
+      </div>
+      <div class="result-text" title="${resultText}">
+        ${escapeHtml(displayText)}${isTruncated ? '…' : ''}
+      </div>
+      <div class="result-meta">
+        Node: ${escapeHtml(nodeName.replace('.notdocker.eth', ''))}
+      </div>
+    `;
+
+    // Prepend to list (newest first)
+    resultsList.insertBefore(card, resultsList.firstChild);
+  });
+
+  // Keep only the last 8 results
+  while (resultsList.children.length > 8) {
+    resultsList.removeChild(resultsList.lastChild);
+  }
+}
+
 // ── Task list ─────────────────────────────────────────────────────────────────
 function updateTaskList(tasks) {
   const panel = document.getElementById('task-panel-inner');
@@ -1386,6 +1579,7 @@ socket.on('update', data => {
   updateSidebar(data);
   updateEvents(data.events || []);
   updateTaskList(data.tasks || []);
+  updateResults(data.tasks || [], data.nodes || []);
   animateTasks(data.tasks || [], data.nodes || []);
   updateSparkline(data.throughput || []);
 });
