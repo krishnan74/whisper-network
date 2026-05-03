@@ -8,12 +8,18 @@ Background loop that:
 
 Execution delegates to whisper.inference, which tries Ollama first and falls
 back to keyword search if Ollama is unreachable.
+
+Each node hosts a registry of logical agents (ml-agent, web3-agent, devops-agent)
+with specialized system prompts and keyword-based routing.
 """
+import json
 import logging
 import os
 import threading
 import time
 from typing import Optional
+
+from whisper.agents import AgentRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +39,7 @@ class AgentRuntime:
         collect_shares_fn = None,
         capabilities: list = None,
         exec_delay: float = 0.0,
+        node_ens_name: str = None,
     ):
         self.ledger            = ledger
         self.our_key           = our_key
@@ -44,6 +51,10 @@ class AgentRuntime:
         self.collect_shares_fn = collect_shares_fn
         self.capabilities      = set(capabilities) if capabilities else set()
         self.exec_delay        = exec_delay  # artificial delay before completing a task (demo kill window)
+
+        # Initialize agent registry for domain-specific routing
+        self.node_ens_name     = node_ens_name or f"node{shard_id}.axl.eth"
+        self.agent_registry    = AgentRegistry(shard_id, self.node_ens_name)
 
         # Load ALL shards — any surviving node can execute any task
         self._shards: dict[int, list[str]] = {}
@@ -220,7 +231,10 @@ class AgentRuntime:
         # ── Threshold decryption (t-of-n Shamir) ──────────────────────────
         if task.threshold_t > 0 and payload.startswith(_TC.MARKER):
             if not self.collect_shares_fn:
-                result = f"shard-{task.shard_id}: [threshold encrypted — no share collection fn]"
+                result = {
+                    "result": f"shard-{task.shard_id}: [threshold encrypted — no share collection fn]",
+                    "agent_ens_name": None,
+                }
                 self.ledger.complete_task(task.task_id, result)
                 return
             shares = self.collect_shares_fn(task)
@@ -238,7 +252,10 @@ class AgentRuntime:
                     task.task_id[:12], len(shares), origin,
                 )
             except Exception as e:
-                result = f"shard-{task.shard_id}: [threshold decryption failed: {e}]"
+                result = {
+                    "result": f"shard-{task.shard_id}: [threshold decryption failed: {e}]",
+                    "agent_ens_name": None,
+                }
                 self.ledger.complete_task(task.task_id, result)
                 return
 
@@ -249,11 +266,17 @@ class AgentRuntime:
                     payload = self.payload_cipher.decrypt(payload)
                     logger.info("task %s: payload decrypted [%s]", task.task_id[:12], origin)
                 except Exception:
-                    result = f"shard-{task.shard_id}: [encrypted payload — home node offline]"
+                    result = {
+                        "result": f"shard-{task.shard_id}: [encrypted payload — home node offline]",
+                        "agent_ens_name": None,
+                    }
                     self.ledger.complete_task(task.task_id, result)
                     return
             else:
-                result = f"shard-{task.shard_id}: [encrypted payload — no key configured]"
+                result = {
+                    "result": f"shard-{task.shard_id}: [encrypted payload — no key configured]",
+                    "agent_ens_name": None,
+                }
                 self.ledger.complete_task(task.task_id, result)
                 return
 
@@ -268,6 +291,16 @@ class AgentRuntime:
         result = self.execute(payload, task.shard_id)
         self.ledger.complete_task(task.task_id, result)
 
-    def execute(self, payload: str, shard_id: int) -> str:
+    def execute(self, payload: str, shard_id: int) -> dict:
         from whisper.inference import run as _infer
-        return _infer(payload, self._shards.get(shard_id, []), self.capabilities, shard_id)
+
+        # Use agent registry to execute with domain-specific routing
+        infer_fn = lambda q, system_prompt: _infer(
+            q, self._shards.get(shard_id, []), self.capabilities, shard_id, system_prompt
+        )
+        result, agent_ens_name = self.agent_registry.execute_with_agent(payload, infer_fn)
+
+        return {
+            "result": result,
+            "agent_ens_name": agent_ens_name,
+        }

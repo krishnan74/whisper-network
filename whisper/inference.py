@@ -42,7 +42,7 @@ _DEFAULT_PROMPT = (
 )
 
 
-def run(payload: str, context_lines: list, capabilities: set, shard_id: int) -> str:
+def run(payload: str, context_lines: list, capabilities: set, shard_id: int, system_prompt: str = None) -> str:
     """Run inference. Tries Ollama; falls back to keyword mock on any error."""
     base_url = os.environ.get("OLLAMA_BASE_URL", _DEFAULT_BASE_URL).rstrip("/")
     model    = os.environ.get("WHISPER_MODEL", _DEFAULT_MODEL)
@@ -51,8 +51,11 @@ def run(payload: str, context_lines: list, capabilities: set, shard_id: int) -> 
     if query.lower().startswith("query:"):
         query = query[6:].strip()
 
-    cap = next((c for c in ("reason", "summarize", "search") if c in capabilities), None)
-    system_prompt = _CAPABILITY_PROMPTS.get(cap, _DEFAULT_PROMPT)
+    # Use provided system prompt or fall back to capability-based prompt
+    cap = None
+    if not system_prompt:
+        cap = next((c for c in ("reason", "summarize", "search") if c in capabilities), None)
+        system_prompt = _CAPABILITY_PROMPTS.get(cap, _DEFAULT_PROMPT)
 
     context      = "\n".join(context_lines) if context_lines else "(no context available)"
     user_message = f"Context:\n{context}\n\nQuery: {query}"
@@ -72,10 +75,17 @@ def run(payload: str, context_lines: list, capabilities: set, shard_id: int) -> 
         )
         resp.raise_for_status()
         answer = resp.json()["message"]["content"].strip()
-        logger.info("ollama ok: shard-%d model=%s cap=%s", shard_id, model, cap or "default")
+        logger.info("ollama ok: shard-%d model=%s cap=%s", shard_id, model, cap or "agent")
         return f"[{model}] {answer}"
     except requests.exceptions.ConnectionError:
         logger.warning("ollama unreachable at %s — falling back to keyword search", base_url)
+    except requests.exceptions.Timeout:
+        logger.warning("ollama timeout (shard-%d, %ds) — falling back to keyword search", shard_id, _TIMEOUT)
+    except requests.exceptions.HTTPError as exc:
+        logger.warning(
+            "ollama http error (shard-%d): %s %s — falling back",
+            shard_id, exc.response.status_code, exc.response.text[:200]
+        )
     except Exception as exc:
         logger.warning("ollama inference failed (shard-%d): %s — falling back", shard_id, exc)
 

@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
 from whisper.crypto import Signer, PayloadCipher, ThresholdCipher
-from whisper.ens import start_registration
+from whisper.ens_agents import register_node_ens, register_all_agents_ens
 from whisper.ledger import TaskLedger
 from whisper.membership import MembershipLayer
 from whisper.runtime import AgentRuntime
@@ -204,26 +204,47 @@ class WhisperNode:
         self._start_recv_loop()
         threading.Thread(target=self._axl_sync_loop,        daemon=True, name="axl-sync").start()
         threading.Thread(target=self._lease_convergence_loop, daemon=True, name="lease-conv").start()
+
+        # Register ENS names via pyens (background thread)
+        threading.Thread(
+            target=self._register_ens_names,
+            daemon=True,
+            name="ens-register",
+        ).start()
+
         logger.info(
             "whisper node running (shard-%d, debug :%d)",
             self.runtime.shard_id, self.debug_port,
         )
 
-        start_registration(
-            shard_id     = self.runtime.shard_id,
-            peer_id      = self.our_key,
-            capabilities = self.membership.our_capabilities,
-            price_axl    = self.membership.our_price_axl,
-            callback     = lambda name: setattr(self, "ens_name", name),
-        )
-
-        # ENS peer discovery is intentionally disabled: AXL topology sync
-        # already discovers all live peers within one sync cycle (~5s).
-        # Seeding membership from ENS adds stale registrations from old runs,
-        # which flood the cluster with phantom failure events and destabilise
-        # quorum until they all time out (~20s).
-
     # ── Background threads ────────────────────────────────────────────────────
+
+    def _register_ens_names(self):
+        """Register node and agent ENS names via pyens (optional, non-blocking)."""
+        try:
+            time.sleep(2)  # Wait for the node to stabilize
+            node_id = self.runtime.shard_id
+            node_ens_name = self.runtime.node_ens_name
+
+            logger.info(f"Registering ENS names for node {node_id}...")
+
+            # Register node
+            node_tx = register_node_ens(node_id=node_id)
+            if node_tx:
+                logger.info(f"Node ENS registration submitted: {node_ens_name} (tx: {node_tx})")
+            else:
+                logger.warning(f"Node ENS registration skipped (pyens not available or misconfigured)")
+
+            # Register agents
+            agent_txs = register_all_agents_ens(node_id=node_id)
+            for agent_id, tx_hash in agent_txs.items():
+                if tx_hash:
+                    logger.info(f"Agent ENS registration submitted: {agent_id}-agent.{node_ens_name} (tx: {tx_hash})")
+                else:
+                    logger.debug(f"Agent {agent_id}-agent ENS registration skipped")
+
+        except Exception as e:
+            logger.debug(f"ENS registration background task failed (non-blocking): {e}")
 
     def _start_recv_loop(self):
         def loop():

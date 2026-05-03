@@ -313,12 +313,17 @@ class TaskLedger:
             task.status       = "completed"
             task.result       = result
             task.completed_at = time.time()
-            task.result_hash  = hashlib.sha256(result.encode()).hexdigest()[:16]
+
+            # Handle both string and dict results for hashing
+            result_str = result if isinstance(result, str) else str(result)
+            task.result_hash  = hashlib.sha256(result_str.encode()).hexdigest()[:16]
             task.version     += 1
             self._persist()
 
         self._gossip_task(task)
-        self._log(f"completed task {task_id[:12]}: {result[:60]}")
+        # Log first 60 chars of result (handle both dict and string)
+        result_preview = result if isinstance(result, str) else str(result)
+        self._log(f"completed task {task_id[:12]}: {result_preview[:60]}")
         self._notify_submitter(task)
         return True
 

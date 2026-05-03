@@ -539,6 +539,20 @@ svg { width: 100%; height: 100%; position: relative; z-index: 2; }
   text-transform: uppercase;
 }
 
+.agent-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 7px;
+  font-weight: bold;
+  padding: 2px 6px;
+  margin-bottom: 4px;
+  background: var(--brand-alt);
+  color: var(--bg);
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 /* Timing badges */
 .task-timing { display: flex; gap: 5px; margin-top: 4px; flex-wrap: wrap; }
 .tt-claim, .tt-exec, .tt-total {
@@ -1178,8 +1192,16 @@ function updateResults(tasks, nodes) {
     // Get the node that executed it
     const nodeName = task.leased_by ? (nodeMap[task.leased_by]?.ens_name || task.leased_by) : '?';
 
-    // Truncate result text
-    const resultText = task.result || '';
+    // Extract result text and agent info (handle both dict and string formats)
+    let resultText = '';
+    let agentEnsName = null;
+    if (typeof task.result === 'object' && task.result !== null) {
+      resultText = task.result.result || '';
+      agentEnsName = task.result.agent_ens_name;
+    } else {
+      resultText = task.result || '';
+    }
+
     const displayText = resultText.length > 200 ? resultText.substring(0, 200) : resultText;
     const isTruncated = resultText.length > 200;
 
@@ -1192,6 +1214,15 @@ function updateResults(tasks, nodes) {
       return text.replace(/[&<>"']/g, m => map[m]);
     };
 
+    // Extract agent domain from ENS name
+    let agentDomain = '';
+    if (agentEnsName) {
+      const match = agentEnsName.match(/(\w+)-agent/);
+      agentDomain = match ? match[1].toUpperCase() : '';
+    }
+
+    const agentBadge = agentEnsName ? `<span class="agent-badge" title="${agentEnsName}">${agentDomain}</span>` : '';
+
     card.innerHTML = `
       <div class="result-id" title="${task.task_id}">
         ID: ${task.task_id.substring(0, 12)}…
@@ -1199,11 +1230,13 @@ function updateResults(tasks, nodes) {
       <div class="result-status completed">
         ✓ Completed in ${execTime}
       </div>
+      ${agentBadge}
       <div class="result-text" title="${resultText}">
         ${escapeHtml(displayText)}${isTruncated ? '…' : ''}
       </div>
       <div class="result-meta">
         Node: ${escapeHtml(nodeName.replace('.notdocker.eth', ''))}
+        ${agentEnsName ? `| Agent: ${escapeHtml(agentEnsName.split('.')[0])}` : ''}
       </div>
     `;
 

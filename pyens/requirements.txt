@@ -1,6 +1,0 @@
-web3>=6.11.0
-eth-account>=0.11.0
-eth-utils>=4.0.0
-eth-abi>=5.0.0
-requests>=2.31.0
-ens-normalize>=3.0.10,<4
