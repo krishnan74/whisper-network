@@ -49,6 +49,26 @@ function sepoliaTxUrl(hash: `0x${string}`) {
   return `https://sepolia.etherscan.io/tx/${hash}`;
 }
 
+/** One label per line and/or comma-separated. Strips a trailing `.{parent}` if pasted full names. */
+function parseChildLabelsForParent(raw: string, parentFqdn: string): string[] {
+  const suffix = `.${parentFqdn}`;
+  const segments = raw.split(/[\n,]+/);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const seg of segments) {
+    let s = seg.trim().toLowerCase().replace(/\s+/g, "");
+    if (!s) continue;
+    if (s.endsWith(suffix)) {
+      s = s.slice(0, -suffix.length);
+    }
+    if (!s || s.includes(".")) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
 function loadState(): PersistedState | null {
   if (typeof window === "undefined") return null;
   try {
@@ -114,10 +134,14 @@ export function OnchainEnsFlow() {
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"none" | "creating-sub" | "creating-nested">("none");
-  const [lastSuccessTx, setLastSuccessTx] = useState<{
-    kind: "sub" | "nested";
-    name: string;
-    hash: `0x${string}`;
+  const [lastSuccessTx, setLastSuccessTx] = useState<
+    | { kind: "sub"; name: string; hash: `0x${string}` }
+    | { kind: "nested"; items: { name: string; hash: `0x${string}` }[] }
+    | null
+  >(null);
+  const [nestedBatchProgress, setNestedBatchProgress] = useState<{
+    current: number;
+    total: number;
   } | null>(null);
 
   const [indexedNames, setIndexedNames] = useState<string[] | null>(null);
@@ -126,7 +150,7 @@ export function OnchainEnsFlow() {
   const [subLabelInput, setSubLabelInput] = useState("");
   const [subOwnerInput, setSubOwnerInput] = useState("");
   const [parentInput, setParentInput] = useState(() => persisted?.prefillParent ?? "");
-  const [nestedLabelInput, setNestedLabelInput] = useState("");
+  const [nestedLabelsInput, setNestedLabelsInput] = useState("");
   const [nestedOwnerInput, setNestedOwnerInput] = useState("");
   const [parentOnchainOwner, setParentOnchainOwner] = useState<`0x${string}` | null>(null);
 
@@ -143,10 +167,10 @@ export function OnchainEnsFlow() {
     const v = parentInput.trim().toLowerCase().replace(/\s+/g, "");
     return v || null;
   }, [parentInput]);
-  const nestedLabel = useMemo(
-    () => nestedLabelInput.trim().toLowerCase().replace(/\s+/g, ""),
-    [nestedLabelInput]
-  );
+  const nestedChildLabels = useMemo(() => {
+    if (!parentName) return [];
+    return parseChildLabelsForParent(nestedLabelsInput, parentName);
+  }, [nestedLabelsInput, parentName]);
   const nestedOwner = useMemo(() => {
     const v = nestedOwnerInput.trim();
     if (!v) return address ?? null;
@@ -347,7 +371,12 @@ export function OnchainEnsFlow() {
     if (!parentIsUnderAxl) {
       return setError(`Parent must be ${ROOT_NAME} or a subname ending in .${ROOT_NAME}.`);
     }
-    if (!nestedLabel) return setError("Enter a child label (e.g. agent1).");
+    const labels = parseChildLabelsForParent(nestedLabelsInput, parentName);
+    if (labels.length === 0) {
+      return setError(
+        "Enter at least one child label (one per line or comma-separated). You can paste lines like agent12 or full names like agent12.goat.axl.eth."
+      );
+    }
     if (!nestedOwner) return setError("Set an owner address.");
     if (needsSepolia) return setError("Switch your wallet network to Sepolia.");
     if (
@@ -362,34 +391,62 @@ export function OnchainEnsFlow() {
 
     setBusy("creating-nested");
     setLastSuccessTx(null);
+    setNestedBatchProgress({ current: 0, total: labels.length });
+    const ensWallet = createWalletClient({
+      account: walletClient.account,
+      chain: addEnsContracts(sepolia),
+      transport: custom(walletClient.transport),
+    });
+    const successes: { name: string; hash: `0x${string}` }[] = [];
+    const failures: { label: string; message: string }[] = [];
+
     try {
-      const ensWallet = createWalletClient({
-        account: walletClient.account,
-        chain: addEnsContracts(sepolia),
-        transport: custom(walletClient.transport),
-      });
-      const full = `${nestedLabel}.${parentName}`;
-      const hash = await createSubname(ensWallet, {
-        name: full,
-        owner: nestedOwner,
-        contract: "registry",
-      });
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      if (receipt.status === "reverted") {
-        throw new Error("Transaction reverted on-chain.");
+      for (let i = 0; i < labels.length; i++) {
+        const label = labels[i];
+        setNestedBatchProgress({ current: i + 1, total: labels.length });
+        try {
+          const full = `${label}.${parentName}`;
+          const hash = await createSubname(ensWallet, {
+            name: full,
+            owner: nestedOwner,
+            contract: "registry",
+          });
+          const receipt = await publicClient.waitForTransactionReceipt({ hash });
+          if (receipt.status === "reverted") {
+            throw new Error("Transaction reverted on-chain.");
+          }
+          const entry: TxLogEntry = { kind: "nested", name: full, hash };
+          setTxLog((prev) => [entry, ...prev]);
+          successes.push({ name: full, hash });
+          setNestedMap((prev) => {
+            const list = prev[parentName] ?? [];
+            const nextList = Array.from(new Set([full, ...list]));
+            return { ...prev, [parentName]: nextList };
+          });
+        } catch (e) {
+          failures.push({
+            label,
+            message: e instanceof Error ? e.message : "Failed",
+          });
+        }
       }
-      const entry: TxLogEntry = { kind: "nested", name: full, hash };
-      setTxLog((prev) => [entry, ...prev]);
-      setLastSuccessTx({ kind: "nested", name: full, hash });
-      setNestedMap((prev) => {
-        const list = prev[parentName] ?? [];
-        const nextList = Array.from(new Set([full, ...list]));
-        return { ...prev, [parentName]: nextList };
-      });
-      setNestedLabelInput("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create nested subname.");
+
+      if (successes.length > 0) {
+        setLastSuccessTx({ kind: "nested", items: successes });
+      }
+      if (failures.length > 0) {
+        const detail = failures.map((f) => `${f.label}: ${f.message}`).join(" · ");
+        setError(
+          failures.length === labels.length
+            ? `None created. ${detail}`
+            : `Created ${successes.length} of ${labels.length}. Failed: ${detail}`
+        );
+      }
+      if (successes.length === labels.length) {
+        setNestedLabelsInput("");
+      }
     } finally {
+      setNestedBatchProgress(null);
       setBusy("none");
     }
   }
@@ -406,8 +463,8 @@ export function OnchainEnsFlow() {
           </h2>
           <p className="mt-2 text-sm leading-6 text-zinc-600">
             Two steps: create a direct subname of <span className="font-medium">{ROOT_NAME}</span>,
-            then create nested names under any subname you own (e.g.{" "}
-            <span className="font-mono text-zinc-800">agent1.hehe.{ROOT_NAME}</span>).
+            then add one or many nested labels under that parent in one go (each label is its own
+            transaction).
           </p>
         </div>
         <div className="shrink-0 text-right text-xs text-zinc-500">
@@ -450,20 +507,47 @@ export function OnchainEnsFlow() {
 
       {lastSuccessTx ? (
         <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-          <p className="font-medium">
-            {lastSuccessTx.kind === "sub" ? "Subname created" : "Nested subname created"}:{" "}
-            <span className="font-mono">{lastSuccessTx.name}</span>
-          </p>
-          <p className="mt-2 break-all font-mono text-xs">
-            <a
-              href={sepoliaTxUrl(lastSuccessTx.hash)}
-              target="_blank"
-              rel="noreferrer"
-              className="text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950"
-            >
-              {lastSuccessTx.hash}
-            </a>
-          </p>
+          {lastSuccessTx.kind === "sub" ? (
+            <>
+              <p className="font-medium">
+                Subname created: <span className="font-mono">{lastSuccessTx.name}</span>
+              </p>
+              <p className="mt-2 break-all font-mono text-xs">
+                <a
+                  href={sepoliaTxUrl(lastSuccessTx.hash)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950"
+                >
+                  {lastSuccessTx.hash}
+                </a>
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="font-medium">
+                Nested subname{lastSuccessTx.items.length > 1 ? "s" : ""} created (
+                {lastSuccessTx.items.length})
+              </p>
+              <ul className="mt-3 space-y-2">
+                {lastSuccessTx.items.map((it) => (
+                  <li key={it.hash} className="border-t border-emerald-100 pt-2 first:border-0 first:pt-0">
+                    <span className="font-mono text-zinc-900">{it.name}</span>
+                    <p className="mt-1 break-all font-mono text-xs">
+                      <a
+                        href={sepoliaTxUrl(it.hash)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950"
+                      >
+                        {it.hash}
+                      </a>
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       ) : null}
 
@@ -667,24 +751,25 @@ export function OnchainEnsFlow() {
               </p>
             </div>
 
-            <div>
-              <label className="text-sm font-medium text-zinc-900">Child label</label>
-              <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm focus-within:ring-4 focus-within:ring-zinc-100">
-                <input
-                  value={nestedLabelInput}
-                  onChange={(e) => setNestedLabelInput(e.target.value)}
-                  placeholder="agent1"
-                  className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                {parentName ? (
-                  <span className="ml-2 select-none text-sm text-zinc-500">.{parentName}</span>
-                ) : null}
-              </div>
+            <div className="sm:col-span-2">
+              <label className="text-sm font-medium text-zinc-900">Child labels</label>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                One per line or comma-separated. You can use short labels (
+                <span className="font-mono">agent2</span>) or full names under the parent above (
+                <span className="font-mono">agent2.goat.{ROOT_NAME}</span>).
+              </p>
+              <textarea
+                value={nestedLabelsInput}
+                onChange={(e) => setNestedLabelsInput(e.target.value)}
+                placeholder={`agent12\nagent2\nagent3`}
+                rows={4}
+                className="mt-2 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-sm text-zinc-900 shadow-sm outline-none placeholder:text-zinc-400 focus:ring-4 focus:ring-zinc-100"
+                autoComplete="off"
+                spellCheck={false}
+              />
             </div>
 
-            <div>
+            <div className="sm:col-span-2">
               <label className="text-sm font-medium text-zinc-900">Owner</label>
               <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm focus-within:ring-4 focus-within:ring-zinc-100">
                 <input
@@ -699,19 +784,41 @@ export function OnchainEnsFlow() {
             </div>
           </div>
 
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs font-mono text-zinc-600">
-              {parentName && nestedLabel && parentIsUnderAxl
-                ? `${nestedLabel}.${parentName}`
-                : "Full name preview"}
-            </p>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-zinc-500">Preview</p>
+              <p className="mt-1 break-words font-mono text-xs leading-relaxed text-zinc-700">
+                {parentName && nestedChildLabels.length > 0 && parentIsUnderAxl
+                  ? nestedChildLabels.map((l) => `${l}.${parentName}`).join(", ")
+                  : parentName && parentIsUnderAxl
+                    ? "Add labels above — each becomes child.parent."
+                    : "Set parent under axl.eth first."}
+              </p>
+              <p className="mt-2 text-xs text-zinc-500">
+                Each name needs its own on-chain transaction; your wallet will prompt once per label.
+              </p>
+            </div>
             <button
               type="button"
               onClick={createNested}
-              disabled={!isConnected || needsSepolia || !walletClient || busy !== "none"}
-              className="inline-flex h-11 items-center justify-center rounded-2xl bg-zinc-900 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={
+                !isConnected ||
+                needsSepolia ||
+                !walletClient ||
+                busy !== "none" ||
+                !parentName ||
+                !parentIsUnderAxl ||
+                nestedChildLabels.length === 0
+              }
+              className="inline-flex h-11 shrink-0 items-center justify-center rounded-2xl bg-zinc-900 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busy === "creating-nested" ? "Creating…" : "Create nested subname"}
+              {nestedBatchProgress
+                ? `Signing ${nestedBatchProgress.current}/${nestedBatchProgress.total}…`
+                : busy === "creating-nested"
+                  ? "Creating…"
+                  : nestedChildLabels.length > 1
+                    ? `Create ${nestedChildLabels.length} nested subnames`
+                    : "Create nested subname"}
             </button>
           </div>
 
