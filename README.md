@@ -95,13 +95,18 @@ Kill half the providers mid-inference. The jobs complete anyway.
 - `openssl` (key generation — called automatically by `run_local.sh`)
 - Docker (optional — only for the Docker Compose setup)
 - `JUSTANAME_API_KEY` in `.env` (optional — enables ENS subname registration on Sepolia)
+- [Ollama](https://ollama.com) (optional — enables real LLM inference; falls back to keyword search if absent)
 
 ---
 
 ## Quickstart
 
 ```bash
-# 0. (Optional) Add your JustaName API key for ENS self-registration
+# 0. (Optional) Set up real LLM inference via Ollama
+ollama pull llama3.2
+OLLAMA_NUM_PARALLEL=6 ollama serve &   # allow all 6 nodes to query concurrently
+
+# 0b. (Optional) Add your JustaName API key for ENS self-registration
 echo "JUSTANAME_API_KEY=your_key_here" >> .env
 
 # 1. Start 6 providers (FAST_MODE: 5s leases, quick recovery)
@@ -234,6 +239,7 @@ whisper/
   ledger.py             Layer 2: lease-based job ledger + ed25519 gossip + threshold encryption
   crypto.py             ed25519 sign/verify + X25519 ECDH + AES-GCM + Shamir GF(256)
   runtime.py            Layer 3: auction-driven execution + shard-affinity + scan fallback
+  inference.py          LLM inference via Ollama; keyword-search fallback if Ollama unreachable
   node.py               entry point: wires all layers + price auction + debug HTTP (:8888+n)
   ens.py                ENS self-registration: claims node{N}.notdocker.eth on Sepolia at startup
 
@@ -276,6 +282,8 @@ run_local.sh            N-provider local setup — supports --count, FAST_MODE, 
 | Node count | 6 | 6 | `--count` (run_local.sh) |
 | Execution delay | 0s | 0s | `EXEC_DELAY` (kill-rescue demo) |
 | Auction window | 400ms | 400ms | hardcoded |
+| Ollama endpoint | `http://localhost:11434` | — | `OLLAMA_BASE_URL` env |
+| Ollama model | `llama3.2` | — | `WHISPER_MODEL` env |
 
 ---
 
@@ -301,6 +309,9 @@ Previous AXL process still holding the port from a prior run. Kill all AXL and w
 
 **ENS name not appearing on node cards**
 Either `JUSTANAME_API_KEY` is not set in `.env`, or the subname is already taken (another run claimed it). Check logs for `ENS registered` or `ENS registration failed` lines. Verify with: `curl "https://api.justaname.id/ens/v1/subname/subname?subname=node1.notdocker.eth&chainId=11155111"`
+
+**Ollama responses only appear for 1–2 shards; others fall back to keyword search**
+All 6 nodes hit Ollama simultaneously. By default Ollama processes 1 request at a time, so later requests timeout. Fix: restart Ollama with `OLLAMA_NUM_PARALLEL=6 ollama serve`. `llama3.2` is 2 GB and fits in RAM for parallel execution.
 
 **ENS records show on JustaName but not on `sepolia.app.ens.domains`**
 Expected — JustaName stores records off-chain via CCIP-Read (ERC-3668). The standard ENS app doesn't query the JustaName gateway. Records are fully resolvable via the JustaName API and any CCIP-Read-aware client.
