@@ -9,7 +9,7 @@ import { JustaNameProvider } from "@justaname.id/react";
 import type { JustaNameProviderConfig } from "@justaname.id/react";
 
 const CHAIN_ID = sepolia.id; // 11155111
-const ENS_DOMAIN = "notdocker.eth";
+const ENS_DOMAIN = "axl.eth";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());

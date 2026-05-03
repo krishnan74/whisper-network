@@ -14,7 +14,7 @@ import { useDebounce } from "@uidotdev/usehooks";
 import { useQuery } from "@tanstack/react-query";
 
 const CHAIN_ID = 11155111; // sepolia
-const ROOT_DOMAIN = "notdocker.eth";
+const ROOT_DOMAIN = "axl.eth";
 
 type SignatureFreeAddParams = {
   username: string;
@@ -93,9 +93,9 @@ export default function SubnamesPage() {
   const debouncedLabel = useDebounce(label, 350);
 
   // Desired behavior:
-  // parent = node.notdocker.eth
+  // parent = node.axl.eth
   // username = agent1
-  // => agent1.node.notdocker.eth
+  // => agent1.node.axl.eth
   const usernameToIssue = debouncedLabel;
   const fullName =
     usernameToIssue && parentName ? `${usernameToIssue}.${parentName}` : "";

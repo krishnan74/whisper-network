@@ -9,7 +9,7 @@ export default function Home() {
       <header className="mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-10">
         <div className="flex flex-col">
           <div className="text-base font-semibold tracking-tight">
-            notdocker.eth
+            axl.eth
           </div>
           <div className="mt-1 text-sm text-zinc-500">
             Claim & resolve your subname on Sepolia.

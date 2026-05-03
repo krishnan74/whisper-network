@@ -1,71 +1,35 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import {
   createPublicClient,
   createWalletClient,
   custom,
-  formatEther,
   getAddress,
   http,
   namehash,
   parseAbi,
-  type Hex,
-  zeroHash,
 } from "viem";
 import { sepolia } from "viem/chains";
 import { addEnsContracts } from "@ensdomains/ensjs";
+import { getNamesForAddress } from "@ensdomains/ensjs/subgraph";
 import { createSubname } from "@ensdomains/ensjs/wallet";
 import { useAccount, useWalletClient } from "wagmi";
 
-// Official Sepolia deployments (ENS docs)
-// https://docs.ens.domains/learn/deployments/
-const ETH_REGISTRAR_CONTROLLER = getAddress(
-  "0xfb3ce5d01e0f33f41dbb39035db9745962f1f968"
-);
-const PUBLIC_RESOLVER = getAddress(
-  "0xe99638b40e4fff0129d56f03b55b6bbc4bbe49b5"
-);
 const ENS_REGISTRY = getAddress("0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e");
 
-const ROOT_NAME = "kuber12.eth";
-const ROOT_LABEL = "kuber12";
-
-const DEFAULT_DURATION_SECONDS = 365n * 24n * 60n * 60n;
-
-type Registration = {
-  label: string;
-  owner: `0x${string}`;
-  duration: bigint;
-  secret: `0x${string}`;
-  resolver: `0x${string}`;
-  data: `0x${string}`[];
-  reverseRecord: number;
-  referrer: `0x${string}`;
-};
-
-const controllerAbi = parseAbi([
-  "function available(string name) view returns (bool)",
-  "function minCommitmentAge() view returns (uint256)",
-  "function maxCommitmentAge() view returns (uint256)",
-  "function rentPrice(string name, uint256 duration) view returns (uint256 base, uint256 premium)",
-  "function makeCommitment((string label,address owner,uint256 duration,bytes32 secret,address resolver,bytes[] data,uint8 reverseRecord,bytes32 referrer) registration) pure returns (bytes32)",
-  "function commit(bytes32 commitment)",
-  "function commitments(bytes32 commitment) view returns (uint256)",
-  "function register((string label,address owner,uint256 duration,bytes32 secret,address resolver,bytes[] data,uint8 reverseRecord,bytes32 referrer) registration) payable",
-]);
+/** Only `axl.eth` — Sepolia on-chain subnames. */
+export const ROOT_NAME = "axl.eth";
 
 const registryAbi = parseAbi([
   "function owner(bytes32 node) view returns (address)",
   "function resolver(bytes32 node) view returns (address)",
 ]);
 
-type PersistedCommit = {
-  label: string;
-  owner: `0x${string}`;
-  duration: string;
-  secret: `0x${string}`;
-  committedAtMs: number;
+type TxLogEntry = {
+  kind: "sub" | "nested";
+  name: string;
+  hash: `0x${string}`;
 };
 
 type PersistedState = {
@@ -74,22 +38,15 @@ type PersistedState = {
   lastResolver?: `0x${string}` | null;
   subnames?: string[];
   nestedSubnames?: Record<string, string[]>;
+  /** After creating a direct subname, pre-fill step 2 parent field on next visit */
+  prefillParent?: string;
+  txLog?: TxLogEntry[];
 };
 
-const STORAGE_KEY_COMMIT = "ens-test:sepolia-commit";
-const STORAGE_KEY_STATE = "ens-test:sepolia-onchain-state";
+const STORAGE_KEY_STATE = "ens-test:sepolia-onchain-state:axl";
 
-function loadCommit(): PersistedCommit | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_COMMIT);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as PersistedCommit;
-    if (parsed?.label !== ROOT_LABEL) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+function sepoliaTxUrl(hash: `0x${string}`) {
+  return `https://sepolia.etherscan.io/tx/${hash}`;
 }
 
 function loadState(): PersistedState | null {
@@ -110,53 +67,36 @@ function saveState(state: PersistedState) {
   localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(state));
 }
 
-function coerceRentPrice(value: unknown): { base: bigint; premium: bigint } {
-  if (Array.isArray(value) && value.length >= 2) {
-    const [base, premium] = value as unknown as [bigint, bigint];
-    if (typeof base === "bigint" && typeof premium === "bigint") return { base, premium };
-  }
-  if (value && typeof value === "object") {
-    const v = value as Record<string, unknown>;
-    const base = v["base"];
-    const premium = v["premium"];
-    if (typeof base === "bigint" && typeof premium === "bigint") return { base, premium };
-  }
-  throw new Error("Unexpected rentPrice() return shape");
-}
-
-function randomSecret32(): `0x${string}` {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  return `0x${hex}`;
-}
-
 export function OnchainEnsFlow() {
   const { isConnected, address, chainId } = useAccount();
   const { data: walletClient } = useWalletClient({ chainId: sepolia.id });
+
+  const rpcUrl =
+    process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL ??
+    "https://ethereum-sepolia-rpc.publicnode.com";
 
   const publicClient = useMemo(
     () =>
       createPublicClient({
         chain: sepolia,
-        transport: http(
-          process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL ??
-            "https://ethereum-sepolia-rpc.publicnode.com"
-        ),
+        transport: http(rpcUrl),
       }),
-    []
+    [rpcUrl]
+  );
+
+  /** ENS-aware client (subgraph + contracts) for indexed name queries */
+  const ensPublicClient = useMemo(
+    () =>
+      createPublicClient({
+        chain: addEnsContracts(sepolia),
+        transport: http(rpcUrl),
+      }),
+    [rpcUrl]
   );
 
   const needsSepolia = isConnected && chainId !== sepolia.id;
 
   const persisted = useMemo(() => loadState(), []);
-
-  const [commit, setCommit] = useState<PersistedCommit | null>(() => loadCommit());
-  const [minAgeSeconds, setMinAgeSeconds] = useState<bigint>(60n);
-  const [maxAgeSeconds, setMaxAgeSeconds] = useState<bigint>(24n * 60n * 60n);
-
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  const [durationSeconds] = useState<bigint>(DEFAULT_DURATION_SECONDS);
 
   const [rootOwner, setRootOwner] = useState<`0x${string}` | null>(
     persisted?.lastOwner ?? null
@@ -168,50 +108,59 @@ export function OnchainEnsFlow() {
   const [nestedMap, setNestedMap] = useState<Record<string, string[]>>(
     () => persisted?.nestedSubnames ?? {}
   );
+  const [txLog, setTxLog] = useState<TxLogEntry[]>(() => persisted?.txLog ?? []);
+  /** Persisted pre-fill for step 2 (set when user creates a direct subname) */
+  const [prefillParent, setPrefillParent] = useState<string>(() => persisted?.prefillParent ?? "");
 
-  const [availability, setAvailability] = useState<boolean | null>(null);
-  const [priceDisplay, setPriceDisplay] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"none" | "checking" | "committing" | "registering" | "creating-sub" | "creating-nested">("none");
+  const [busy, setBusy] = useState<"none" | "creating-sub" | "creating-nested">("none");
+  const [lastSuccessTx, setLastSuccessTx] = useState<{
+    kind: "sub" | "nested";
+    name: string;
+    hash: `0x${string}`;
+  } | null>(null);
+
+  const [indexedNames, setIndexedNames] = useState<string[] | null>(null);
+  const [indexedError, setIndexedError] = useState<string | null>(null);
+
+  const [subLabelInput, setSubLabelInput] = useState("");
+  const [subOwnerInput, setSubOwnerInput] = useState("");
+  const [parentInput, setParentInput] = useState(() => persisted?.prefillParent ?? "");
+  const [nestedLabelInput, setNestedLabelInput] = useState("");
+  const [nestedOwnerInput, setNestedOwnerInput] = useState("");
+  const [parentOnchainOwner, setParentOnchainOwner] = useState<`0x${string}` | null>(null);
+
+  const subLabel = useMemo(
+    () => subLabelInput.trim().toLowerCase().replace(/\s+/g, ""),
+    [subLabelInput]
+  );
+  const subOwner = useMemo(() => {
+    const v = subOwnerInput.trim();
+    if (!v) return address ?? null;
+    return v as `0x${string}`;
+  }, [subOwnerInput, address]);
+  const parentName = useMemo(() => {
+    const v = parentInput.trim().toLowerCase().replace(/\s+/g, "");
+    return v || null;
+  }, [parentInput]);
+  const nestedLabel = useMemo(
+    () => nestedLabelInput.trim().toLowerCase().replace(/\s+/g, ""),
+    [nestedLabelInput]
+  );
+  const nestedOwner = useMemo(() => {
+    const v = nestedOwnerInput.trim();
+    if (!v) return address ?? null;
+    return v as `0x${string}`;
+  }, [nestedOwnerInput, address]);
+  const parentIsUnderAxl = useMemo(() => {
+    if (!parentName) return false;
+    return parentName === ROOT_NAME || parentName.endsWith(`.${ROOT_NAME}`);
+  }, [parentName]);
 
   const isRootOwnedByConnectedWallet = useMemo(() => {
     if (!address || !rootOwner) return false;
     return address.toLowerCase() === rootOwner.toLowerCase();
   }, [address, rootOwner]);
-
-  useEffect(() => {
-    if (!commit) return;
-    const id = window.setInterval(() => setNowMs(Date.now()), 500);
-    return () => window.clearInterval(id);
-  }, [commit]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [min, max] = await Promise.all([
-          publicClient.readContract({
-            address: ETH_REGISTRAR_CONTROLLER,
-            abi: controllerAbi,
-            functionName: "minCommitmentAge",
-          }),
-          publicClient.readContract({
-            address: ETH_REGISTRAR_CONTROLLER,
-            abi: controllerAbi,
-            functionName: "maxCommitmentAge",
-          }),
-        ]);
-        if (cancelled) return;
-        setMinAgeSeconds(min);
-        setMaxAgeSeconds(max);
-      } catch {
-        // ignore
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [publicClient]);
 
   useEffect(() => {
     let cancelled = false;
@@ -237,13 +186,6 @@ export function OnchainEnsFlow() {
         const resolverAddr = resolver as `0x${string}`;
         setRootOwner(ownerAddr);
         setRootResolver(resolverAddr);
-        saveState({
-          name: ROOT_NAME,
-          lastOwner: ownerAddr,
-          lastResolver: resolverAddr,
-          subnames,
-          nestedSubnames: nestedMap,
-        });
       } catch {
         // ignore
       }
@@ -251,242 +193,72 @@ export function OnchainEnsFlow() {
     return () => {
       cancelled = true;
     };
-  }, [publicClient, subnames, nestedMap]);
+  }, [publicClient]);
 
-  const commitmentAgeSeconds = useMemo(() => {
-    if (!commit) return null;
-    return BigInt(Math.max(0, Math.floor((nowMs - commit.committedAtMs) / 1000)));
-  }, [commit, nowMs]);
+  useEffect(() => {
+    saveState({
+      name: ROOT_NAME,
+      lastOwner: rootOwner,
+      lastResolver: rootResolver,
+      subnames,
+      nestedSubnames: nestedMap,
+      prefillParent: prefillParent || undefined,
+      txLog: txLog.length ? txLog : undefined,
+    });
+  }, [rootOwner, rootResolver, subnames, nestedMap, prefillParent, txLog]);
 
-  const secondsUntilReveal = useMemo(() => {
-    if (!commitmentAgeSeconds) return null;
-    if (commitmentAgeSeconds >= minAgeSeconds) return 0n;
-    return minAgeSeconds - commitmentAgeSeconds;
-  }, [commitmentAgeSeconds, minAgeSeconds]);
-
-  async function check() {
-    setError(null);
-    if (!isConnected || !address) return setError("Connect your wallet first.");
-    if (needsSepolia) return setError("Switch your wallet network to Sepolia.");
-    setBusy("checking");
-    try {
-      const available = await publicClient.readContract({
-        address: ETH_REGISTRAR_CONTROLLER,
-        abi: controllerAbi,
-        functionName: "available",
-        args: [ROOT_LABEL],
+  /** Subgraph: names for wallet under *.axl.eth (Sepolia indexer) */
+  useEffect(() => {
+    if (!address) {
+      startTransition(() => {
+        setIndexedNames(null);
+        setIndexedError(null);
       });
-      setAvailability(available);
-      if (!available) {
-        setPriceDisplay("");
-        return;
-      }
-      const price = await publicClient.readContract({
-        address: ETH_REGISTRAR_CONTROLLER,
-        abi: controllerAbi,
-        functionName: "rentPrice",
-        args: [ROOT_LABEL, durationSeconds],
-      });
-      const { base, premium } = coerceRentPrice(price);
-      setPriceDisplay(`${formatEther(base + premium)} SepoliaETH`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to check availability.");
-    } finally {
-      setBusy("none");
+      return;
     }
-  }
-
-  async function commitName() {
-    setError(null);
-    if (!walletClient || !address) return setError("Wallet client not available. Connect wallet first.");
-    if (needsSepolia) return setError("Switch your wallet network to Sepolia.");
-    setBusy("committing");
-    try {
-      const secret = randomSecret32();
-      const registration: Registration = {
-        label: ROOT_LABEL,
-        owner: address,
-        duration: durationSeconds,
-        secret,
-        resolver: PUBLIC_RESOLVER,
-        data: [],
-        reverseRecord: 0,
-        referrer: zeroHash,
-      };
-      const commitment = await publicClient.readContract({
-        address: ETH_REGISTRAR_CONTROLLER,
-        abi: controllerAbi,
-        functionName: "makeCommitment",
-        args: [registration],
+    let cancelled = false;
+    (async () => {
+      startTransition(() => {
+        setIndexedError(null);
+        setIndexedNames(null);
       });
-      const hash = await walletClient.writeContract({
-        address: ETH_REGISTRAR_CONTROLLER,
-        abi: controllerAbi,
-        functionName: "commit",
-        args: [commitment as `0x${string}`],
-      });
-      await publicClient.waitForTransactionReceipt({ hash });
-      const persistedCommit: PersistedCommit = {
-        label: ROOT_LABEL,
-        owner: address,
-        duration: durationSeconds.toString(),
-        secret,
-        committedAtMs: Date.now(),
-      };
-      localStorage.setItem(STORAGE_KEY_COMMIT, JSON.stringify(persistedCommit));
-      setCommit(persistedCommit);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Commit failed.");
-    } finally {
-      setBusy("none");
-    }
-  }
-
-  async function registerName() {
-    setError(null);
-    if (!walletClient || !address) return setError("Wallet client not available. Connect wallet first.");
-    if (!commit) return setError("No commitment found. Commit first.");
-    if (needsSepolia) return setError("Switch your wallet network to Sepolia.");
-
-    setBusy("registering");
-    try {
-      const duration = BigInt(commit.duration);
-      const price = await publicClient.readContract({
-        address: ETH_REGISTRAR_CONTROLLER,
-        abi: controllerAbi,
-        functionName: "rentPrice",
-        args: [ROOT_LABEL, duration],
-      });
-      const { base, premium } = coerceRentPrice(price);
-      const total = base + premium;
-      const value = (total * 105n) / 100n;
-
-      const registration = {
-        label: ROOT_LABEL,
-        owner: commit.owner,
-        duration,
-        secret: commit.secret,
-        resolver: PUBLIC_RESOLVER,
-        data: [],
-        reverseRecord: 0,
-        referrer: zeroHash,
-      } satisfies Registration;
-
-      const commitment = await publicClient.readContract({
-        address: ETH_REGISTRAR_CONTROLLER,
-        abi: controllerAbi,
-        functionName: "makeCommitment",
-        args: [registration],
-      });
-
-      const committedAt = await publicClient.readContract({
-        address: ETH_REGISTRAR_CONTROLLER,
-        abi: controllerAbi,
-        functionName: "commitments",
-        args: [commitment as Hex],
-      });
-      if (committedAt === 0n) throw new Error("Commitment not found on-chain. Re-commit.");
-
-      const block = await publicClient.getBlock();
-      const ageFromChain = block.timestamp - committedAt;
-      if (ageFromChain < minAgeSeconds) {
-        throw new Error(`Wait ~${Number(minAgeSeconds - ageFromChain)}s more before registering.`);
-      }
-      if (ageFromChain > maxAgeSeconds) throw new Error("Commitment expired. Commit again.");
-
-      const { request } = await publicClient.simulateContract({
-        address: ETH_REGISTRAR_CONTROLLER,
-        abi: controllerAbi,
-        functionName: "register",
-        args: [registration],
-        value,
-        account: walletClient.account,
-      });
-
-      const gas =
-        typeof request.gas === "bigint" ? (request.gas * 130n) / 100n : undefined;
-
-      await walletClient.writeContract({ ...request, gas });
-
-      localStorage.removeItem(STORAGE_KEY_COMMIT);
-      setCommit(null);
-      await check();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Register failed.");
-    } finally {
-      setBusy("none");
-    }
-  }
-
-  const [subLabelInput, setSubLabelInput] = useState("");
-  const subLabel = useMemo(
-    () => subLabelInput.trim().toLowerCase().replace(/\s+/g, ""),
-    [subLabelInput]
-  );
-  const [subOwnerInput, setSubOwnerInput] = useState("");
-  const subOwner = useMemo(() => {
-    const v = subOwnerInput.trim();
-    if (!v) return address ?? null;
-    return v as `0x${string}`;
-  }, [subOwnerInput, address]);
-
-  async function createUnderRoot() {
-    setError(null);
-    if (!walletClient) return setError("Wallet client not available. Connect wallet first.");
-    if (!isRootOwnedByConnectedWallet) return setError(`You must own ${ROOT_NAME} to issue subnames under it.`);
-    if (!subLabel) return setError("Enter a subname label (e.g. hehe).");
-    if (!subOwner) return setError("Set an owner address.");
-    if (needsSepolia) return setError("Switch your wallet network to Sepolia.");
-
-    setBusy("creating-sub");
-    try {
-      const ensWallet = createWalletClient({
-        account: walletClient.account,
-        chain: addEnsContracts(sepolia),
-        transport: custom(walletClient.transport),
-      });
-      const full = `${subLabel}.${ROOT_NAME}`;
-      await createSubname(ensWallet, { name: full, owner: subOwner, contract: "registry" });
-      setSubnames((prev) => {
-        const next = Array.from(new Set([full, ...prev]));
-        saveState({
-          name: ROOT_NAME,
-          lastOwner: rootOwner,
-          lastResolver: rootResolver,
-          subnames: next,
-          nestedSubnames: nestedMap,
+      try {
+        const rows = await getNamesForAddress(ensPublicClient, {
+          address,
+          pageSize: 500,
         });
-        return next;
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create subname.");
-    } finally {
-      setBusy("none");
-    }
-  }
-
-  const [parentInput, setParentInput] = useState("");
-  const parentName = useMemo(() => {
-    const v = parentInput.trim().toLowerCase().replace(/\s+/g, "");
-    return v || null;
-  }, [parentInput]);
-  const [nestedLabelInput, setNestedLabelInput] = useState("");
-  const nestedLabel = useMemo(
-    () => nestedLabelInput.trim().toLowerCase().replace(/\s+/g, ""),
-    [nestedLabelInput]
-  );
-  const [nestedOwnerInput, setNestedOwnerInput] = useState("");
-  const nestedOwner = useMemo(() => {
-    const v = nestedOwnerInput.trim();
-    if (!v) return address ?? null;
-    return v as `0x${string}`;
-  }, [nestedOwnerInput, address]);
-  const [parentOnchainOwner, setParentOnchainOwner] = useState<`0x${string}` | null>(null);
+        if (cancelled) return;
+        const suffix = `.${ROOT_NAME}`;
+        const seen = new Set<string>();
+        const under: string[] = [];
+        for (const row of rows) {
+          const n = row.name;
+          if (!n || n === ROOT_NAME) continue;
+          if (!n.endsWith(suffix)) continue;
+          if (seen.has(n)) continue;
+          seen.add(n);
+          under.push(n);
+        }
+        under.sort();
+        setIndexedNames(under);
+      } catch (e) {
+        if (cancelled) return;
+        setIndexedError(e instanceof Error ? e.message : "Could not load indexed names.");
+        setIndexedNames([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ensPublicClient, address]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!parentName) return setParentOnchainOwner(null);
+      if (!parentName || !parentIsUnderAxl) {
+        setParentOnchainOwner(null);
+        return;
+      }
       try {
         const owner = await publicClient.readContract({
           address: ENS_REGISTRY,
@@ -504,17 +276,92 @@ export function OnchainEnsFlow() {
     return () => {
       cancelled = true;
     };
-  }, [publicClient, parentName]);
+  }, [publicClient, parentName, parentIsUnderAxl]);
+
+  const browserNamesList = useMemo(() => {
+    const s = new Set<string>();
+    for (const n of subnames) s.add(n);
+    for (const list of Object.values(nestedMap)) {
+      for (const n of list) s.add(n);
+    }
+    return [...s].sort();
+  }, [subnames, nestedMap]);
+
+  const mergedUnderAxl = useMemo(() => {
+    const s = new Set<string>();
+    for (const n of browserNamesList) s.add(n);
+    if (indexedNames) {
+      for (const n of indexedNames) s.add(n);
+    }
+    return [...s].sort();
+  }, [browserNamesList, indexedNames]);
+
+  async function createUnderRoot() {
+    setError(null);
+    if (!walletClient) return setError("Connect your wallet first.");
+    if (!isRootOwnedByConnectedWallet) {
+      return setError(
+        `Your wallet must be the on-chain owner of ${ROOT_NAME} to create subnames. Connect the owner wallet.`
+      );
+    }
+    if (!subLabel) return setError("Enter a label (e.g. hehe).");
+    if (!subOwner) return setError("Set an owner address.");
+    if (needsSepolia) return setError("Switch your wallet network to Sepolia.");
+
+    setBusy("creating-sub");
+    setLastSuccessTx(null);
+    try {
+      const ensWallet = createWalletClient({
+        account: walletClient.account,
+        chain: addEnsContracts(sepolia),
+        transport: custom(walletClient.transport),
+      });
+      const full = `${subLabel}.${ROOT_NAME}`;
+      const hash = await createSubname(ensWallet, {
+        name: full,
+        owner: subOwner,
+        contract: "registry",
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status === "reverted") {
+        throw new Error("Transaction reverted on-chain.");
+      }
+      const entry: TxLogEntry = { kind: "sub", name: full, hash };
+      setTxLog((prev) => [entry, ...prev]);
+      setLastSuccessTx({ kind: "sub", name: full, hash });
+      setSubnames((prev) => Array.from(new Set([full, ...prev])));
+      setSubLabelInput("");
+      setParentInput(full);
+      setPrefillParent(full);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create subname.");
+    } finally {
+      setBusy("none");
+    }
+  }
 
   async function createNested() {
     setError(null);
-    if (!walletClient) return setError("Wallet client not available. Connect wallet first.");
-    if (!parentName) return setError("Enter a parent name (e.g. hehe.kuber12.eth).");
+    if (!walletClient) return setError("Connect your wallet first.");
+    if (!parentName) return setError(`Enter a parent under ${ROOT_NAME} (e.g. hehe.${ROOT_NAME}).`);
+    if (!parentIsUnderAxl) {
+      return setError(`Parent must be ${ROOT_NAME} or a subname ending in .${ROOT_NAME}.`);
+    }
     if (!nestedLabel) return setError("Enter a child label (e.g. agent1).");
     if (!nestedOwner) return setError("Set an owner address.");
     if (needsSepolia) return setError("Switch your wallet network to Sepolia.");
+    if (
+      address &&
+      parentOnchainOwner &&
+      parentOnchainOwner.toLowerCase() !== address.toLowerCase()
+    ) {
+      return setError(
+        "Your wallet must be the on-chain owner of the parent name to create nested subnames."
+      );
+    }
 
     setBusy("creating-nested");
+    setLastSuccessTx(null);
     try {
       const ensWallet = createWalletClient({
         account: walletClient.account,
@@ -522,20 +369,24 @@ export function OnchainEnsFlow() {
         transport: custom(walletClient.transport),
       });
       const full = `${nestedLabel}.${parentName}`;
-      await createSubname(ensWallet, { name: full, owner: nestedOwner, contract: "registry" });
+      const hash = await createSubname(ensWallet, {
+        name: full,
+        owner: nestedOwner,
+        contract: "registry",
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status === "reverted") {
+        throw new Error("Transaction reverted on-chain.");
+      }
+      const entry: TxLogEntry = { kind: "nested", name: full, hash };
+      setTxLog((prev) => [entry, ...prev]);
+      setLastSuccessTx({ kind: "nested", name: full, hash });
       setNestedMap((prev) => {
         const list = prev[parentName] ?? [];
         const nextList = Array.from(new Set([full, ...list]));
-        const next = { ...prev, [parentName]: nextList };
-        saveState({
-          name: ROOT_NAME,
-          lastOwner: rootOwner,
-          lastResolver: rootResolver,
-          subnames,
-          nestedSubnames: next,
-        });
-        return next;
+        return { ...prev, [parentName]: nextList };
       });
+      setNestedLabelInput("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create nested subname.");
     } finally {
@@ -545,31 +396,36 @@ export function OnchainEnsFlow() {
 
   return (
     <div className="w-full rounded-3xl border border-zinc-200 bg-white p-8 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
-      <div className="flex items-start justify-between gap-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h2 className="text-xl font-semibold tracking-tight">On-chain ENS flow</h2>
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            axl.eth · Sepolia
+          </p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight text-zinc-900">
+            Subnames for {ROOT_NAME}
+          </h2>
           <p className="mt-2 text-sm leading-6 text-zinc-600">
-            Guided flow for Sepolia: own <span className="font-medium text-zinc-900">{ROOT_NAME}</span>, then create{" "}
-            <span className="font-medium text-zinc-900">subnames</span> and{" "}
-            <span className="font-medium text-zinc-900">nested subnames</span>.
+            Two steps: create a direct subname of <span className="font-medium">{ROOT_NAME}</span>,
+            then create nested names under any subname you own (e.g.{" "}
+            <span className="font-mono text-zinc-800">agent1.hehe.{ROOT_NAME}</span>).
           </p>
         </div>
         <div className="shrink-0 text-right text-xs text-zinc-500">
           <div>
             Network:{" "}
             <span className={needsSepolia ? "font-medium text-red-600" : "font-medium text-zinc-900"}>
-              {needsSepolia ? "Wrong network" : "Sepolia"}
+              {needsSepolia ? "Switch to Sepolia" : "Sepolia"}
             </span>
           </div>
           <div className="mt-1 font-mono">
-            {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "—"}
+            {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "Connect wallet"}
           </div>
         </div>
       </div>
 
       <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
         <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          On-chain status (persists after refresh)
+          {ROOT_NAME} on-chain
         </div>
         <div className="mt-3 grid gap-2 text-sm">
           <div className="flex flex-wrap items-center gap-2">
@@ -577,9 +433,13 @@ export function OnchainEnsFlow() {
             <span className="font-mono text-zinc-900">{rootOwner ?? "—"}</span>
             {isRootOwnedByConnectedWallet ? (
               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                You own it
+                Your wallet
               </span>
-            ) : null}
+            ) : (
+              <span className="text-xs text-amber-700">
+                Connect the owner wallet to create subnames.
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-zinc-500">Resolver:</span>
@@ -588,142 +448,79 @@ export function OnchainEnsFlow() {
         </div>
       </div>
 
-      <div className="mt-6 grid gap-4">
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-medium text-zinc-900">Step 1 — Check availability</div>
-              <div className="mt-1 text-xs text-zinc-500">
-                If you don’t own it yet, we’ll help you register it via commit → wait → register.
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={check}
-              disabled={!isConnected || needsSepolia || busy !== "none"}
-              className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+      {lastSuccessTx ? (
+        <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <p className="font-medium">
+            {lastSuccessTx.kind === "sub" ? "Subname created" : "Nested subname created"}:{" "}
+            <span className="font-mono">{lastSuccessTx.name}</span>
+          </p>
+          <p className="mt-2 break-all font-mono text-xs">
+            <a
+              href={sepoliaTxUrl(lastSuccessTx.hash)}
+              target="_blank"
+              rel="noreferrer"
+              className="text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950"
             >
-              {busy === "checking" ? "Checking…" : "Check"}
-            </button>
-          </div>
-          <div className="mt-3 text-sm text-zinc-700">
-            {availability === null
-              ? "—"
-              : availability
-                ? `${ROOT_NAME} is available. Estimated price: ${priceDisplay || "—"}`
-                : `${ROOT_NAME} is not available (already registered).`}
-          </div>
+              {lastSuccessTx.hash}
+            </a>
+          </p>
         </div>
+      ) : null}
 
-        {!isRootOwnedByConnectedWallet && (
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-medium text-zinc-900">Step 2 — Commit</div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  We generate a secret in your browser and save it so refresh won’t break the flow.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={commitName}
-                disabled={!isConnected || needsSepolia || !walletClient || busy !== "none"}
-                className="inline-flex h-9 items-center justify-center rounded-xl bg-zinc-900 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {busy === "committing" ? "Committing…" : "Commit"}
-              </button>
-            </div>
+      <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5">
+        <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Names under {ROOT_NAME} · your wallet
+        </div>
+        <p className="mt-2 text-sm text-zinc-600">
+          After a refresh, indexed names show what the subgraph ties to your address. This browser also
+          lists names you created here.
+        </p>
 
-            {commit ? (
-              <div className="mt-3 text-xs text-zinc-600">
-                Commitment saved. Ready in:{" "}
-                <span className="font-medium text-zinc-900">
-                  {secondsUntilReveal !== null ? `${Number(secondsUntilReveal)}s` : "—"}
-                </span>
-                {" · "}Expires in ~{Number(maxAgeSeconds / 3600n)}h
-              </div>
-            ) : null}
-          </div>
-        )}
-
-        {!isRootOwnedByConnectedWallet && (
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-medium text-zinc-900">Step 3 — Register</div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  Requires the commitment to be at least {Number(minAgeSeconds)}s old.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={registerName}
-                disabled={!isConnected || needsSepolia || !walletClient || !commit || busy !== "none"}
-                className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {busy === "registering" ? "Registering…" : "Register"}
-              </button>
-            </div>
-            <div className="mt-3 text-xs text-zinc-500">
-              We send `value = price * 1.05` and `gas = estimate * 1.30` to reduce failure risk.
-            </div>
-          </div>
-        )}
-
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <div className="text-sm font-medium text-zinc-900">Step 4 — Create a subname</div>
-          <div className="mt-1 text-xs text-zinc-500">
-            Example: <span className="font-mono">hehe.{ROOT_NAME}</span>
+        <div className="mt-4 space-y-4">
+          <div>
+            <p className="text-xs font-medium text-zinc-700">Indexed (Sepolia subgraph)</p>
+            {address ? (
+              indexedNames === null && !indexedError ? (
+                <p className="mt-1 text-sm text-zinc-500">Loading…</p>
+              ) : indexedError ? (
+                <p className="mt-1 text-sm text-amber-800">{indexedError}</p>
+              ) : indexedNames && indexedNames.length > 0 ? (
+                <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                  {indexedNames.map((n) => (
+                    <li key={n} className="font-mono text-sm text-zinc-800">
+                      {n}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1 text-sm text-zinc-500">None found yet in the index.</p>
+              )
+            ) : (
+              <p className="mt-1 text-sm text-zinc-500">Connect a wallet to load indexed names.</p>
+            )}
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div>
-              <div className="text-sm font-medium text-zinc-900">Label</div>
-              <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm focus-within:ring-4 focus-within:ring-zinc-100">
-                <input
-                  value={subLabelInput}
-                  onChange={(e) => setSubLabelInput(e.target.value)}
-                  placeholder="hehe"
-                  className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
-                />
-                <span className="ml-2 select-none text-sm text-zinc-500">.{ROOT_NAME}</span>
-              </div>
-            </div>
-            <div>
-              <div className="text-sm font-medium text-zinc-900">Owner</div>
-              <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm focus-within:ring-4 focus-within:ring-zinc-100">
-                <input
-                  value={subOwnerInput}
-                  onChange={(e) => setSubOwnerInput(e.target.value)}
-                  placeholder={address ? `${address.slice(0, 6)}…${address.slice(-4)} (default)` : "0x…"}
-                  className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
-                />
-              </div>
-            </div>
+          <div className="border-t border-zinc-100 pt-4">
+            <p className="text-xs font-medium text-zinc-700">Recorded in this browser</p>
+            {browserNamesList.length > 0 ? (
+              <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                {browserNamesList.map((n) => (
+                  <li key={n} className="font-mono text-sm text-zinc-800">
+                    {n}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-sm text-zinc-500">No names stored locally yet.</p>
+            )}
           </div>
 
-          <div className="mt-4 flex items-center justify-between gap-3">
-            <div className="text-xs text-zinc-500">
-              Contract mode: <span className="font-medium">registry</span>
-            </div>
-            <button
-              type="button"
-              onClick={createUnderRoot}
-              disabled={!isConnected || needsSepolia || !walletClient || busy !== "none"}
-              className="inline-flex h-9 items-center justify-center rounded-xl bg-zinc-900 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {busy === "creating-sub" ? "Creating…" : "Create subname"}
-            </button>
-          </div>
-
-          {subnames.length ? (
-            <div className="mt-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Created subnames
-              </div>
-              <ul className="mt-2 space-y-1">
-                {subnames.slice(0, 8).map((n) => (
-                  <li key={n} className="font-mono text-xs text-zinc-700">
+          {mergedUnderAxl.length > 0 ? (
+            <div className="border-t border-zinc-100 pt-4">
+              <p className="text-xs font-medium text-zinc-700">Combined (unique)</p>
+              <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                {mergedUnderAxl.map((n) => (
+                  <li key={n} className="font-mono text-sm text-zinc-800">
                     {n}
                   </li>
                 ))}
@@ -732,37 +529,154 @@ export function OnchainEnsFlow() {
           ) : null}
         </div>
 
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <div className="text-sm font-medium text-zinc-900">Step 5 — Create a nested subname</div>
-          <div className="mt-1 text-xs text-zinc-500">
-            Example: <span className="font-mono">agent1.hehe.{ROOT_NAME}</span>
+        {txLog.length > 0 ? (
+          <div className="mt-5 border-t border-zinc-100 pt-5">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Successful transactions (this browser)
+            </p>
+            <ul className="mt-2 space-y-2">
+              {txLog.slice(0, 15).map((t, i) => (
+                <li key={`${t.hash}-${i}`} className="text-sm">
+                  <span className="text-zinc-500">{t.kind === "sub" ? "Sub" : "Nested"}</span>{" "}
+                  <span className="font-mono text-zinc-800">{t.name}</span>
+                  <br />
+                  <a
+                    href={sepoliaTxUrl(t.hash)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="break-all font-mono text-xs text-emerald-800 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-950"
+                  >
+                    {t.hash}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-8 grid gap-8">
+        {/* Step 1 */}
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6">
+          <div className="flex items-center gap-3">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-sm font-semibold text-white">
+              1
+            </span>
+            <div>
+              <h3 className="text-base font-semibold text-zinc-900">Create a subname of axl.eth</h3>
+              <p className="mt-0.5 text-sm text-zinc-500">
+                Issues <span className="font-mono text-zinc-700">yourlabel.{ROOT_NAME}</span> on-chain.
+              </p>
+            </div>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <div>
-              <div className="text-sm font-medium text-zinc-900">Parent name</div>
+              <label className="text-sm font-medium text-zinc-900">Label</label>
+              <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm focus-within:ring-4 focus-within:ring-zinc-100">
+                <input
+                  value={subLabelInput}
+                  onChange={(e) => setSubLabelInput(e.target.value)}
+                  placeholder="hehe"
+                  className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <span className="ml-2 select-none text-sm text-zinc-500">.{ROOT_NAME}</span>
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-zinc-900">Owner</label>
+              <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm focus-within:ring-4 focus-within:ring-zinc-100">
+                <input
+                  value={subOwnerInput}
+                  onChange={(e) => setSubOwnerInput(e.target.value)}
+                  placeholder={address ? `${address.slice(0, 6)}…${address.slice(-4)} (default)` : "0x…"}
+                  className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-zinc-500">
+              Uses ENS registry · you confirm one transaction in your wallet.
+            </p>
+            <button
+              type="button"
+              onClick={createUnderRoot}
+              disabled={!isConnected || needsSepolia || !walletClient || busy !== "none"}
+              className="inline-flex h-11 items-center justify-center rounded-2xl bg-zinc-900 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy === "creating-sub" ? "Creating…" : `Create .${ROOT_NAME}`}
+            </button>
+          </div>
+
+          {subnames.length > 0 ? (
+            <div className="mt-6 border-t border-zinc-100 pt-5">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Your subnames</p>
+              <ul className="mt-2 space-y-1.5">
+                {subnames.map((n) => (
+                  <li key={n} className="font-mono text-sm text-zinc-800">
+                    {n}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+
+        {/* Step 2 */}
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6">
+          <div className="flex items-center gap-3">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-sm font-semibold text-white">
+              2
+            </span>
+            <div>
+              <h3 className="text-base font-semibold text-zinc-900">Create nested subnames</h3>
+              <p className="mt-0.5 text-sm text-zinc-500">
+                Parent must be <span className="font-mono">{ROOT_NAME}</span> or end with{" "}
+                <span className="font-mono">.{ROOT_NAME}</span>.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className="text-sm font-medium text-zinc-900">Parent name</label>
               <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm focus-within:ring-4 focus-within:ring-zinc-100">
                 <input
                   value={parentInput}
                   onChange={(e) => setParentInput(e.target.value)}
                   placeholder={`hehe.${ROOT_NAME}`}
                   className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                  autoComplete="off"
+                  spellCheck={false}
                 />
               </div>
-              <div className="mt-2 text-xs text-zinc-500">
-                Parent owner:{" "}
-                <span className="font-mono">{parentName ? parentOnchainOwner ?? "—" : "—"}</span>
-              </div>
+              <p className="mt-2 text-xs text-zinc-500">
+                Registry owner of parent:{" "}
+                <span className="font-mono">
+                  {parentName && parentIsUnderAxl ? parentOnchainOwner ?? "—" : "—"}
+                </span>
+                {parentName && !parentIsUnderAxl ? (
+                  <span className="ml-2 text-red-600">Must be under {ROOT_NAME}.</span>
+                ) : null}
+              </p>
             </div>
 
             <div>
-              <div className="text-sm font-medium text-zinc-900">Child label</div>
+              <label className="text-sm font-medium text-zinc-900">Child label</label>
               <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm focus-within:ring-4 focus-within:ring-zinc-100">
                 <input
                   value={nestedLabelInput}
                   onChange={(e) => setNestedLabelInput(e.target.value)}
                   placeholder="agent1"
                   className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                  autoComplete="off"
+                  spellCheck={false}
                 />
                 {parentName ? (
                   <span className="ml-2 select-none text-sm text-zinc-500">.{parentName}</span>
@@ -770,50 +684,51 @@ export function OnchainEnsFlow() {
               </div>
             </div>
 
-            <div className="sm:col-span-2">
-              <div className="text-sm font-medium text-zinc-900">Owner</div>
+            <div>
+              <label className="text-sm font-medium text-zinc-900">Owner</label>
               <div className="mt-2 flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm focus-within:ring-4 focus-within:ring-zinc-100">
                 <input
                   value={nestedOwnerInput}
                   onChange={(e) => setNestedOwnerInput(e.target.value)}
                   placeholder={address ? `${address.slice(0, 6)}…${address.slice(-4)} (default)` : "0x…"}
                   className="w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                  autoComplete="off"
+                  spellCheck={false}
                 />
               </div>
             </div>
           </div>
 
-          <div className="mt-4 flex items-center justify-between gap-3">
-            <div className="text-xs text-zinc-500">
-              Full name:{" "}
-              <span className="font-mono">
-                {parentName && nestedLabel ? `${nestedLabel}.${parentName}` : "—"}
-              </span>
-            </div>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-mono text-zinc-600">
+              {parentName && nestedLabel && parentIsUnderAxl
+                ? `${nestedLabel}.${parentName}`
+                : "Full name preview"}
+            </p>
             <button
               type="button"
               onClick={createNested}
               disabled={!isConnected || needsSepolia || !walletClient || busy !== "none"}
-              className="inline-flex h-9 items-center justify-center rounded-xl bg-zinc-900 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-11 items-center justify-center rounded-2xl bg-zinc-900 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy === "creating-nested" ? "Creating…" : "Create nested subname"}
             </button>
           </div>
 
-          {Object.keys(nestedMap).length ? (
-            <div className="mt-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          {Object.keys(nestedMap).length > 0 ? (
+            <div className="mt-6 border-t border-zinc-100 pt-5">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                 Nested subnames
-              </div>
-              <div className="mt-2 space-y-3">
-                {Object.entries(nestedMap).slice(0, 3).map(([parent, items]) => (
+              </p>
+              <div className="mt-3 space-y-4">
+                {Object.entries(nestedMap).map(([parent, items]) => (
                   <div key={parent}>
-                    <div className="text-xs text-zinc-500">
-                      Parent: <span className="font-mono text-zinc-900">{parent}</span>
-                    </div>
+                    <p className="text-xs text-zinc-500">
+                      Under <span className="font-mono text-zinc-800">{parent}</span>
+                    </p>
                     <ul className="mt-1 space-y-1">
-                      {items.slice(0, 6).map((n) => (
-                        <li key={n} className="font-mono text-xs text-zinc-700">
+                      {items.map((n) => (
+                        <li key={n} className="font-mono text-sm text-zinc-800">
                           {n}
                         </li>
                       ))}
@@ -823,10 +738,10 @@ export function OnchainEnsFlow() {
               </div>
             </div>
           ) : null}
-        </div>
+        </section>
 
         {error ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
             {error}
           </div>
         ) : null}
@@ -834,4 +749,3 @@ export function OnchainEnsFlow() {
     </div>
   );
 }
-

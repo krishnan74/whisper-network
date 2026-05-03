@@ -16,7 +16,7 @@ import { addEnsContracts } from "@ensdomains/ensjs";
 import { createSubname } from "@ensdomains/ensjs/wallet";
 import { useWalletClient } from "wagmi";
 
-const PARENT_DOMAIN = "notdocker.eth";
+const PARENT_DOMAIN = "axl.eth";
 const CHAIN_ID = 11155111; // sepolia
 
 type SignatureFreeAddParams = {
@@ -79,7 +79,7 @@ export function EnsSubnameManager() {
   });
 
   // Resolve-first: if reverse record exists, show that name.
-  // If not, fall back to any owned subname under nodocker.eth.
+  // If not, fall back to any owned subname under axl.eth.
   const resolvedName = ensName ?? null;
   const ownedName = existingSubname?.ens ?? null;
   const displayedName = resolvedName || ownedName;

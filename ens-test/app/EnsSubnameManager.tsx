@@ -11,7 +11,7 @@ import {
 import { useDebounce } from "@uidotdev/usehooks";
 import { useQuery } from "@tanstack/react-query";
 
-const PARENT_DOMAIN = "notdocker.eth";
+const PARENT_DOMAIN = "axl.eth";
 const CHAIN_ID = 11155111; // sepolia
 
 type SignatureFreeAddParams = {
