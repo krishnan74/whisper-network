@@ -62,4 +62,6 @@ exec python -m whisper.node \
     --heartbeat-interval  "${HEARTBEAT_INTERVAL}" \
     --suspect-after       "${SUSPECT_AFTER}" \
     --key-file            "${KEY_FILE}" \
-    --log-level           "${LOG_LEVEL}"
+    --log-level           "${LOG_LEVEL}" \
+    ${CAPABILITIES:+--capabilities "$CAPABILITIES"} \
+    ${PRICE_AXL:+--price-axl "$PRICE_AXL"}
